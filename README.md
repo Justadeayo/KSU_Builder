@@ -14,4 +14,3 @@ https://github.com/backslashxx/ksu_toolkit
 
 Inferno's build(ksu ksunext sukisu)
 https://github.com/inferno0230/kernel_oneplus_sm8550-CI
-# KernelSU_Action_Builder_2
