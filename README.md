@@ -59,10 +59,10 @@ Before using KSU_Builder, ensure you have:
 |----------|--------|---------|
 | `KSU.yml` | Generic ARM64 | Main GKI/Non-GKI kernel builder |
 | `Non-Gki.yml` | Non-GKI devices | Non-GKI specific compilation |
-| `Personal.yml` | OnePlus/Pixel (ARM64) | Custom personal kernel builds |
+| `Personal.yml` | Possible to use for any device just edit workflow to your device| Custom personal kernel builds |
 | `KSU-NEXT.yml` | ARM64 devices | KernelSU-Next + SUSFS integration |
 | `KSU-SUSFS.yml` | ARM64 devices | SUSFS-focused builds |
-| `violet.yml` | Redmi Note 7 Pro | Optimized build for Redmi Note 7 Pro |
+| `violet.yml` | Redmi Note 7 Pro | Optimized build for some Redmi Note 7 Pro ROM build|
 | `rmx2020.yml` | Realme RMX2020 series | Realme devices support |
 | `build.yml` | Flagship devices | Kalama SOC (Pixel/Sony/OnePlus flagship) |
 
@@ -197,6 +197,7 @@ This project is provided as-is for educational and personal use. Users are respo
 
 **Flashing custom kernels may void warranty and brick devices if done incorrectly.**
 
+**#Therefore, you agree to do this at your own risk and I'm not responsible for any negative aftermath**
 ---
 
 **Last Updated**: July 2026
