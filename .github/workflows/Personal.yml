@@ -23,7 +23,7 @@ on:
         description: Kernel Branch
         required: true
         type: string
-        default: "thirteen"
+        default: "sixteen"
         
       defconfig_name:
         description: Defconfig Name
@@ -49,10 +49,9 @@ on:
 
       BUILD_COMMIT:
          description: "Any new changes that applies as a build note/commit"
-         required: true
+         required: false
          type: string
-         default: "Initial Build"
-          
+         default: "..."
       telegram_chat_id:
         description: "Telegram Chat ID (e.g. -1001234567890)"
         required: true
