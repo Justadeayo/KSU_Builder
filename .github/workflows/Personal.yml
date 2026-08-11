@@ -47,12 +47,6 @@ on:
           - ReSukiSU-with-susfs
         default: KernelSU
 
-      ksu_branch:
-        description: "KernelSU Branch (Justadeayo/KernelSU)"
-        required: false
-        type: string
-        default: "master"
-
       BUILD_COMMIT:
         description: "Any new changes that applies as a build note/commit"
         required: false
@@ -60,23 +54,33 @@ on:
         default: "..."
 
       telegram_chat_id:
-        description: "Telegram Chat ID (e.g. -1001234567890)"
-        required: true
+        description: "Telegram Chat ID (Leave blank to use repo secret)"
+        required: false
         type: string
         
       telegram_bot_token:
-        description: "Telegram Bot Token (e.g. 123456:ABC-DEF...)"
-        required: true
+        description: "Telegram Bot Token (Leave blank to use repo secret)"
+        required: false
         type: string
 
 env:
   TZ: "Africa/Lagos"
 
 jobs:
+  build-manager:
+    uses: Justadeayo/KernelSU/.github/workflows/build-manager.yml@Custom-build
+    with:
+      telegram_chat_id: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+
   Kernel_CI:
+    needs: build-manager
     env:
       TZ: "Africa/Lagos"
       GH_TOKEN: ${{ github.token }}
+      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -111,7 +115,7 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
           
-          git clone --depth=1 -b ${{ inputs.ksu_branch }} https://github.com/Justadeayo/KernelSU.git KSU_REPO
+          git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
           cd KSU_REPO
           RAW_COMMIT="$(git log -1 --pretty=%s)"
           CLEAN_COMMIT=$(echo "$RAW_COMMIT" | tr -d '`*_' | xargs)
@@ -135,15 +139,14 @@ jobs:
           TG_MSG+="*Linux Version*: \`${KERNEL_VER}\`%0A"
           TG_MSG+="*Device*: \`${{ inputs.device_codename }}\`%0A"
           TG_MSG+="*KernelSU*: \`${{ inputs.ksu_type }}\`%0A"
-          TG_MSG+="*KSU Branch*: \`${{ inputs.ksu_branch }}\`%0A"
           TG_MSG+="*SUSFS*: \`${SUSFS_LABEL}\`%0A"
           TG_MSG+="*Build Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`%0A"
           TG_MSG+="*KSU Commit*: \`${LAST_KSU_COMMIT}\`%0A"
           TG_MSG+="*KSU Hash*: \`${COMMIT_HASH}\`%0A"
           TG_MSG+="*Build Notes*: \`${BUILD_COMMIT}\`"
 
-          curl -sX POST "https://api.telegram.org/bot${{ inputs.telegram_bot_token }}/sendMessage" \
-            -d "chat_id=${{ inputs.telegram_chat_id }}" \
+          curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "parse_mode=Markdown" \
             -d "disable_web_page_preview=true" \
             -d "text=${TG_MSG}"
@@ -184,9 +187,9 @@ jobs:
           cd kernel
           case "${{ inputs.ksu_type }}" in
             "KernelSU")
-              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/${{ inputs.ksu_branch }}/kernel/setup.sh" > setup.sh
+              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
               sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-              bash setup.sh ${{ inputs.ksu_branch }}
+              bash setup.sh master
               ;;
             "ReSukiSU-with-susfs")
               curl -LSs "https://raw.githubusercontent.com/skye-tachyon/KernelSU/master/kernel/setup.sh" | bash -s master
@@ -277,11 +280,18 @@ jobs:
           name: kernel-zip
           path: "*.zip"
 
+      - name: Download compiled Manager APK
+        uses: actions/download-artifact@v4
+        with:
+          name: manager
+          path: manager_out/
+
       - name: Create GitHub Release
         run: |
           REL_NAME="${{ inputs.device_codename }}_${{ inputs.ksu_type }}_$(date +"%Y%m%d_%H%M")"
           ZIP_FILE=$(ls *.zip)
-          gh release create "$REL_NAME" --title "$REL_NAME" --notes "Automated custom kernel build" "${ZIP_FILE}"
+          APK_FILE=$(find manager_out/ -type f -name "*.apk" | head -n 1)
+          gh release create "$REL_NAME" --title "$REL_NAME" --notes "Automated custom kernel & manager build" "${ZIP_FILE}" "${APK_FILE}"
 
       - name: Upload to Telegram
         run: |
@@ -291,13 +301,13 @@ jobs:
           SECS=$((DURATION % 60))
           
           ZIP_FILE=$(ls *.zip)
+          APK_FILE=$(find manager_out/ -type f -name "*.apk" | head -n 1)
           FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
           
           SUCCESS_MSG="*Build Successful!* ✅
 
           *Device*: \`${{ inputs.device_codename }}\`
           *KernelSU*: \`${{ inputs.ksu_type }}\`
-          *KSU Branch*: \`${{ inputs.ksu_branch }}\`
           *SUSFS*: \`${SUSFS_LABEL}\`
           *File*: \`${ZIP_NAME}.zip\`
           *Size*: \`${FILE_SIZE}\`
@@ -305,10 +315,20 @@ jobs:
           *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`"
 
           curl -sX POST -F document=@"${ZIP_FILE}" \
-            "https://api.telegram.org/bot${{ inputs.telegram_bot_token }}/sendDocument" \
-            -F "chat_id=${{ inputs.telegram_chat_id }}" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${TELEGRAM_CHAT_ID}" \
             -F "parse_mode=Markdown" \
             -F "caption=${SUCCESS_MSG}"
+
+          if [[ "${{ inputs.ksu_type }}" == "KernelSU" || "${{ inputs.ksu_type }}" == "ReSukiSU-with-susfs" ]]; then
+            if [ -f "$APK_FILE" ]; then
+              curl -sX POST -F document=@"${APK_FILE}" \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+                -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                -F "parse_mode=Markdown" \
+                -F "caption=📦 *Corresponding Manager APK Build*"
+            fi
+          fi
 
       - name: Send Build Failure Message & Logs
         if: failure()
@@ -329,22 +349,22 @@ jobs:
             
             FAIL_MSG+="%0A%0A*Error Log Snippet:*%0A\`\`\`%0A${LOG_TAIL}%0A\`\`\`"
             
-            curl -sX POST "https://api.telegram.org/bot${{ inputs.telegram_bot_token }}/sendMessage" \
-              -d "chat_id=${{ inputs.telegram_chat_id }}" \
+            curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
               -d "parse_mode=Markdown" \
               -d "disable_web_page_preview=true" \
               -d "text=${FAIL_MSG}"
 
             cp "${GITHUB_WORKSPACE}/build.log" "${GITHUB_WORKSPACE}/build_error.log"
             curl -sX POST -F document=@"${GITHUB_WORKSPACE}/build_error.log" \
-              "https://api.telegram.org/bot${{ inputs.telegram_bot_token }}"/sendDocument \
-              -F "chat_id=${{ inputs.telegram_chat_id }}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
               -F "caption=📄 Full Compilation Log"
           else
             FAIL_MSG+="%0A%0A⚠️ *Note*: Build failed before compilation started (e.g. Clang download, Git clone, or configuration syntax error)."
             
-            curl -sX POST "https://api.telegram.org/bot${{ inputs.telegram_bot_token }}/sendMessage" \
-              -d "chat_id=${{ inputs.telegram_chat_id }}" \
+            curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
               -d "parse_mode=Markdown" \
               -d "disable_web_page_preview=true" \
               -d "text=${FAIL_MSG}"
