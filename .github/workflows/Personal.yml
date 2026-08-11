@@ -47,11 +47,18 @@ on:
           - ReSukiSU-with-susfs
         default: KernelSU
 
+      ksu_branch:
+        description: "KernelSU Branch (Justadeayo/KernelSU)"
+        required: false
+        type: string
+        default: "master"
+
       BUILD_COMMIT:
-         description: "Any new changes that applies as a build note/commit"
-         required: false
-         type: string
-         default: "..."
+        description: "Any new changes that applies as a build note/commit"
+        required: false
+        type: string
+        default: "..."
+
       telegram_chat_id:
         description: "Telegram Chat ID (e.g. -1001234567890)"
         required: true
@@ -104,7 +111,7 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
           
-          git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
+          git clone --depth=1 -b ${{ inputs.ksu_branch }} https://github.com/Justadeayo/KernelSU.git KSU_REPO
           cd KSU_REPO
           RAW_COMMIT="$(git log -1 --pretty=%s)"
           CLEAN_COMMIT=$(echo "$RAW_COMMIT" | tr -d '`*_' | xargs)
@@ -128,6 +135,7 @@ jobs:
           TG_MSG+="*Linux Version*: \`${KERNEL_VER}\`%0A"
           TG_MSG+="*Device*: \`${{ inputs.device_codename }}\`%0A"
           TG_MSG+="*KernelSU*: \`${{ inputs.ksu_type }}\`%0A"
+          TG_MSG+="*KSU Branch*: \`${{ inputs.ksu_branch }}\`%0A"
           TG_MSG+="*SUSFS*: \`${SUSFS_LABEL}\`%0A"
           TG_MSG+="*Build Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`%0A"
           TG_MSG+="*KSU Commit*: \`${LAST_KSU_COMMIT}\`%0A"
@@ -176,7 +184,9 @@ jobs:
           cd kernel
           case "${{ inputs.ksu_type }}" in
             "KernelSU")
-              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s master
+              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/${{ inputs.ksu_branch }}/kernel/setup.sh" > setup.sh
+              sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
+              bash setup.sh ${{ inputs.ksu_branch }}
               ;;
             "ReSukiSU-with-susfs")
               curl -LSs "https://raw.githubusercontent.com/skye-tachyon/KernelSU/master/kernel/setup.sh" | bash -s master
@@ -287,6 +297,7 @@ jobs:
 
           *Device*: \`${{ inputs.device_codename }}\`
           *KernelSU*: \`${{ inputs.ksu_type }}\`
+          *KSU Branch*: \`${{ inputs.ksu_branch }}\`
           *SUSFS*: \`${SUSFS_LABEL}\`
           *File*: \`${ZIP_NAME}.zip\`
           *Size*: \`${FILE_SIZE}\`
@@ -326,7 +337,7 @@ jobs:
 
             cp "${GITHUB_WORKSPACE}/build.log" "${GITHUB_WORKSPACE}/build_error.log"
             curl -sX POST -F document=@"${GITHUB_WORKSPACE}/build_error.log" \
-              "https://api.telegram.org/bot${{ inputs.telegram_bot_token }}/sendDocument" \
+              "https://api.telegram.org/bot${{ inputs.telegram_bot_token }}"/sendDocument \
               -F "chat_id=${{ inputs.telegram_chat_id }}" \
               -F "caption=📄 Full Compilation Log"
           else
