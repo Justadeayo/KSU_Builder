@@ -57,11 +57,13 @@ on:
         description: "Telegram Chat ID (Leave blank to use repo secret)"
         required: false
         type: string
+        default: ""
         
       telegram_bot_token:
         description: "Telegram Bot Token (Leave blank to use repo secret)"
         required: false
         type: string
+        default: ""
 
 env:
   TZ: "Africa/Lagos"
@@ -70,17 +72,17 @@ jobs:
   build-manager:
     uses: Justadeayo/KernelSU/.github/workflows/build-manager.yml@Custom-build
     with:
-      telegram_chat_id: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      telegram_chat_id: ${{ inputs.telegram_chat_id != '' && inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
     secrets:
-      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token != '' && inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
 
   Kernel_CI:
     needs: build-manager
     env:
       TZ: "Africa/Lagos"
       GH_TOKEN: ${{ github.token }}
-      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
-      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id != '' && inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token != '' && inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -290,8 +292,12 @@ jobs:
         run: |
           REL_NAME="${{ inputs.device_codename }}_${{ inputs.ksu_type }}_$(date +"%Y%m%d_%H%M")"
           ZIP_FILE=$(ls *.zip)
-          APK_FILE=$(find manager_out/ -type f -name "*.apk" | head -n 1)
-          gh release create "$REL_NAME" --title "$REL_NAME" --notes "Automated custom kernel & manager build" "${ZIP_FILE}" "${APK_FILE}"
+          APK_FILE=$(find manager_out/ -type f -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -f "$APK_FILE" ]; then
+            gh release create "$REL_NAME" --title "$REL_NAME" --notes "Automated custom kernel & manager build" "${ZIP_FILE}" "${APK_FILE}"
+          else
+            gh release create "$REL_NAME" --title "$REL_NAME" --notes "Automated custom kernel build" "${ZIP_FILE}"
+          fi
 
       - name: Upload to Telegram
         run: |
@@ -301,7 +307,7 @@ jobs:
           SECS=$((DURATION % 60))
           
           ZIP_FILE=$(ls *.zip)
-          APK_FILE=$(find manager_out/ -type f -name "*.apk" | head -n 1)
+          APK_FILE=$(find manager_out/ -type f -name "*.apk" 2>/dev/null | head -n 1)
           FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
           
           SUCCESS_MSG="*Build Successful!* ✅
