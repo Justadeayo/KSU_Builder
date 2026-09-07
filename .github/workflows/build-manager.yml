@@ -2,7 +2,7 @@ name: Build Manager
 
 on:
   push:
-    branches: [ "main", "dev", "ci", "test", "staging", "Custom-build" ]
+    branches: [ "main", "dev", "ci", "test", "staging" ]
   workflow_call:
     inputs:
       telegram_chat_id:
@@ -182,9 +182,9 @@ jobs:
 
       - name: Set Custom Base Version Tag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null || git tag -f "v3.3.0"
+          git config user.name "Justus"
+          git config user.email "Justadeayo@users.noreply.github.com"
+          git tag -f "v3.3.0" || git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null
 
       - name: Write key
         if: ${{ github.event_name != 'pull_request' || github.ref_type == 'tag' || github.event_name == 'workflow_call' }}
@@ -265,9 +265,9 @@ jobs:
 
       - name: Set Custom Base Version Tag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null || git tag -f "v3.3.0"
+          git config user.name "Justus"
+          git config user.email "Justadeayo@users.noreply.github.com"
+          git tag -f "v3.3.0" || git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null
 
       - name: Setup need_upload
         id: need_upload

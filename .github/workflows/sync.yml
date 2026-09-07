@@ -12,16 +12,18 @@ jobs:
       contents: write
       actions: write 
     steps:
-      - name: Checkout master branch
+      - name: Checkout target repository
         uses: actions/checkout@v4
         with:
+          repository: Justadeayo/KernelSU
+          token: ${{ secrets.SYNC_PAT }}
           ref: master
           fetch-depth: 0 
 
       - name: Configure Git
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "Justus"
+          git config --global user.email "Justadeayo@users.noreply.github.com"
 
       - name: Add upstream repository
         run: |
@@ -74,6 +76,6 @@ jobs:
       - name: Trigger Release Workflow for Violet
         if: env.SYNC_NEEDED == 'true'
         run: |
-          gh workflow run release.yml -R Justadeayo/KernelSU --ref Custom-build
+          gh workflow run release.yml -R Justadeayo/KSU_Builder --ref dev
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}

@@ -28,13 +28,13 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             VERSION_TAG="${{ github.ref_name }}"
           else
-            OFFSET=-28
+            OFFSET=3
             RUN_NUM=${{ github.run_number }}
             TAG_BUILD=$((OFFSET + RUN_NUM))
             VERSION_TAG="v3.3.0-${TAG_BUILD}"
             
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.name "Justus"
+            git config user.email "Justadeayo@users.noreply.github.com"
             git tag "$VERSION_TAG"
             git push origin "$VERSION_TAG"
           fi

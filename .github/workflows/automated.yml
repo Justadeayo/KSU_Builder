@@ -17,13 +17,12 @@ env:
   DEFCONFIG_NAME: "vendor/violet-perf_defconfig"
   DEVICE_CODENAME: "violet"
   BUILD_COMMIT: "Synced with upstream changes 💯"
+  KERNEL_NAME: "Xcalibur"
 
 jobs:
   build-manager:
-    uses: Justadeayo/KernelSU/.github/workflows/build-manager.yml@Custom-build
-    secrets:
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
+
 
   Kernel_CI:
     needs: build-manager
@@ -162,7 +161,7 @@ jobs:
 
       - name: Make AnyKernel3
         run: |
-          ZIP_NAME="${{ env.DEVICE_CODENAME }}_KernelSU_$(date +"%Y%m%d_%H%M")"
+          ZIP_NAME="${{ env.DEVICE_CODENAME }}_${{ env.KERNEL_NAME }}_KSU_$(date +"%Y%m%d_%H%M")"
           BOOT_DIR="kernel/out/arch/arm64/boot"
           
           git clone -b master https://github.com/Justadeayo/AnyKernel3.git
