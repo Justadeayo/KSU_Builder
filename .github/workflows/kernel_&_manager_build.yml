@@ -81,11 +81,12 @@ env:
 jobs:
   build-manager:
     if: ${{ inputs.ksu_type == 'KernelSU' }}
-    uses: Justadeayo/KernelSU/.github/workflows/build-manager.yml@Custom-build
+    uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
     with:
       telegram_chat_id: ${{ inputs.telegram_chat_id }}
     secrets:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
 
   Kernel_CI:
     if: always() && !cancelled() && (needs.build-manager.result == 'success' || needs.build-manager.result == 'skipped')
@@ -272,7 +273,7 @@ jobs:
 
       - name: Make AnyKernel3
         run: |
-          ZIP_NAME="${{ inputs.device_codename }}_${{ inputs.ksu_type }}_$(date +"%Y%m%d_%H%M")"
+          ZIP_NAME="${{ inputs.kernel_name }}_${{ inputs.device_codename }}_${{ inputs.ksu_type }}_$(date +"%Y%m%d_%H%M")"
           BOOT_DIR="kernel/out/arch/arm64/boot"
           
           git clone -b master https://github.com/Justadeayo/AnyKernel3.git

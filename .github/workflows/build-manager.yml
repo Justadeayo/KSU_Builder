@@ -2,7 +2,7 @@ name: Build Manager
 
 on:
   push:
-    branches: [ "main", "dev", "ci", "test", "staging", "Custom-build" ]
+    branches: [ "main", "dev", "ci", "test", "staging" ]
   workflow_call:
     inputs:
       telegram_chat_id:
@@ -69,7 +69,7 @@ jobs:
     needs: generate-key
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Master Repository
+      - name: Checkout KernelSU Repository
         uses: actions/checkout@v4
         with:
           repository: 'Justadeayo/KernelSU'
@@ -121,7 +121,7 @@ jobs:
             pack_ksuinit: false
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout Master Repository
+      - name: Checkout KernelSU Repository
         uses: actions/checkout@v4
         with:
           repository: 'Justadeayo/KernelSU'
@@ -172,7 +172,7 @@ jobs:
         working-directory: ./manager
 
     steps:
-      - name: Checkout Master Repository
+      - name: Checkout KernelSU Repository
         uses: actions/checkout@v4
         with:
           repository: 'Justadeayo/KernelSU'
@@ -182,9 +182,9 @@ jobs:
 
       - name: Set Custom Base Version Tag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null || git tag -f "v3.3.0"
+          git config user.name "Justus"
+          git config user.email "Justadeayo@users.noreply.github.com"
+          git tag -f "v3.3.0" || git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null
 
       - name: Write key
         if: ${{ github.event_name != 'pull_request' || github.ref_type == 'tag' || github.event_name == 'workflow_call' }}
@@ -225,7 +225,7 @@ jobs:
 
       - name: Patch Repositories to Justadeayo
         run: |
-          find app/src/ -type f \( -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle*" \) -exec sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' {} +
+          find app/src/ -type f \( -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle*" \) -exec sed -i 's|backslashxx/KernelSU|Justadeayo/KSU_Builder|g' {} +
 
       - name: Build with Gradle
         run: |
@@ -255,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Master Repository
+      - name: Checkout KernelSU Repository
         uses: actions/checkout@v4
         with:
           repository: 'Justadeayo/KernelSU'
@@ -265,9 +265,9 @@ jobs:
 
       - name: Set Custom Base Version Tag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null || git tag -f "v3.3.0"
+          git config user.name "Justus"
+          git config user.email "Justadeayo@users.noreply.github.com"
+          git tag -f "v3.3.0" || git tag -a "v3.3.0" -m "Base release tag" HEAD~1 2>/dev/null
 
       - name: Setup need_upload
         id: need_upload
