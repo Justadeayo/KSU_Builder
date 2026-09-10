@@ -1,24 +1,22 @@
-# KernelSU Custom-Build Branch License
+# KSU_Builder dev Branch License
 ## Overview
-This license applies specifically to the **Custom-build** branch of the KernelSU repository. This branch contains custom GitHub Actions workflows, build automation scripts, and documentation created for custom builds and advanced deployments. **Use with caution and at your own risk.**
+This license applies specifically to the **dev** branch of the **KSU_Builder** repository. This branch contains custom GitHub Actions workflows, build automation scripts, and documentation created for custom builds and advanced deployments. **Use with caution and at your own risk.**
 ---
 ## Terms and Conditions
 ### 1. Purpose
-The Custom-build branch is provided as-is for:
+The dev branch is provided as-is for:
 - Testing new build workflows and automation
 - Evaluation of build system improvements
 - Experimentation with different kernel configurations
 - Development and deployment of custom features
-
 ### 2. Usage Restrictions
-Users of this Custom-build branch agree to:
+Users of this dev branch agree to:
 - Not use in production without thorough testing and validation on your specific hardware
 - Test thoroughly before deploying any artifacts built from this branch to end-user devices
 - Report issues with clear reproduction steps and environment details
 - Verify compatibility with your specific kernel source, device, and toolchain before use
-
 ### 3. Disclaimer of Warranty
-THIS CUSTOM-BUILD BRANCH IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO:
+THIS DEV BRANCH IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO:
 - FITNESS FOR A PARTICULAR PURPOSE
 - MERCHANTABILITY
 - NON-INFRINGEMENT
@@ -28,10 +26,9 @@ THIS CUSTOM-BUILD BRANCH IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRE
 The workflows, scripts, and documentation on this branch are experimental and may:
 - Produce broken or non-functional builds
 - Have incomplete error handling
-- Change significantly without notice
+- Change significantly without notice 
 - Fail without clear error messages
 - Consume excessive resources
-
 ### 4. Limitation of Liability
 In no event shall the authors, contributors, or repository maintainers be liable for:
 - Bricked devices or data loss resulting from builds created with this branch
@@ -40,43 +37,37 @@ In no event shall the authors, contributors, or repository maintainers be liable
 - Resource exhaustion or billing issues from GitHub Actions
 - Incompatibility with your kernel source or device configuration
 - Any indirect, incidental, special, consequential, or punitive damages
-
 ### 5. Upstream Compliance
-Where applicable, this Custom-build branch maintains compatibility with:
+Where applicable, this dev branch maintains compatibility with:
 - The official KernelSU project (https://github.com/tiann/KernelSU)
 - All upstream licenses and terms
-For upstream project licensing, refer to the master branch and the KernelSU project's original license.
-
+For upstream project licensing, refer to the main/master branch and the KernelSU project's original license.
 ### 6. Artifact Warranties
-Artifacts built from this Custom-build branch (kernel ZIPs, APKs, binaries) are:
+Artifacts built from this dev branch (kernel ZIPs, APKs, binaries) are:
 - Provided as-is and tested only as of the present date
 - Not signed with production certificates
 - Not guaranteed to be secure or free of vulnerabilities
 - Subject to change between builds without notice
-
 ### 7. Testing Obligations
-By using this Custom-build branch, you acknowledge:
+By using this dev branch, you acknowledge:
 - You will test thoroughly before installation on any device
 - You will backup your data before flashing any builds
 - You understand risks of using custom and experimental software
 - You will not hold maintainers responsible for issues arising from use
-
 ### 8. Feedback and Reporting
-If you use this Custom-build branch and discover issues:
+If you use this dev branch and discover issues:
 - Report with clear reproduction steps and error logs
 - Include your device, kernel source, and toolchain information
 - Provide verbose workflow logs from GitHub Actions
 - Use respectful, constructive language
 Reported issues help improve stability, but reporting does not guarantee fixes or support.
-
 ### 9. No Support Guarantee
-Usage of this Custom-build branch does not guarantee:
+Usage of this dev branch does not guarantee:
 - Technical support or assistance
 - Bug fixes or patches
 - Response to issues or PRs
 - Maintenance or updates
 Support is provided on a best-effort basis by volunteers.
-
 ### 10. Modifications and Distribution
 You may:
 - Fork this branch and modify workflows for personal use
@@ -87,14 +78,12 @@ You may not:
 - Distribute modified versions without attribution
 - Remove or alter this license
 - Misrepresent this as official production-ready software
-
 ### 11. Branch Status
-This Custom-build branch is considered:
+This dev branch is considered:
 - Experimental — features and workflows may change
 - Unstable — compatibility not guaranteed
 - Unsupported — use at your own discretion and at your own risk
 - Dynamic — may be rebased, reset, or updated without notice
-
 ### 12. Acknowledgment of Risks
 Users acknowledge understanding that:
 - Kernel compilation is complex and error-prone
@@ -102,18 +91,17 @@ Users acknowledge understanding that:
 - Telegram notifications may not indicate actual build status
 - GitHub Actions have rate limits and resource constraints
 - Build artifacts may be incomplete or corrupted
-
 ### 13. Third-Party Software
 This branch uses and integrates with:
 - AOSP Clang (https://android.googlesource.com/platform/prebuilts/clang/)
-- KernelSU (https://github.com/tiann/KernelSU)
-- AnyKernel3 (https://github.com/osm0sis/AnyKernel3)
+- KernelSU (https://github.com/Justadeayo/KernelSU)
+- AnyKernel3 (https://github.com/Justadeayo/AnyKernel3)
 - GitHub Actions (https://github.com/features/actions)
 - Other open-source tools
 Refer to upstream projects for their respective licenses and terms.
 ---
 ## Compliance with Upstream Projects
-This Custom-build branch builds upon and modifies workflows that interact with:
+This dev branch builds upon and modifies workflows that interact with:
 - KernelSU kernel module (GPL)
 - AOSP/Android sources (Apache 2.0 + proprietary)
 - Third-party kernel sources
@@ -123,8 +111,8 @@ When using this branch, you must also comply with:
 - Android Open Source Project license terms
 - All applicable laws in your jurisdiction
 ---
-## Changes from Master Branch
-The Custom-build branch differs from the master branch in that:
+## Changes from Main Branch
+The dev branch differs from the main/master branch in that:
 - Additional custom workflows are present
 - Build automation is enhanced and customized
 - Documentation is specific to this branch
@@ -133,16 +121,17 @@ The Custom-build branch differs from the master branch in that:
 ---
 ## Reverting to Stable
 To use stable, production-ready builds:
-- Switch to the master branch
-- Use official KernelSU releases
+- Switch to the main/master branch
+- Use official releases from KSU_Builder or KernelSU
 - Refer to upstream project documentation
 - Review the official license terms
 ---
 ## License Version
 
+
 | Version | Date | Changes |
 | :--- | :--- | :--- |
-| 1.0 | 2026-07-26 | Initial Custom-build branch license |
+| 1.0 | 2026-07-26 | Initial dev branch license |
 
 ---
 ## Contact and Questions
@@ -152,13 +141,13 @@ For questions about this license:
 - Consult the upstream KernelSU project for kernel-related questions
 ---
 ## Final Statement
-This Custom-build branch is provided for use with caution and at your own risk. Though tested and certified as at present date, you assume all risks and responsibilities for any outcomes, whether positive or negative. The authors and contributors make no guarantees and accept no liability.
+This dev branch is provided for use with caution and at your own risk. Though tested and certified as at present date, you assume all risks and responsibilities for any outcomes, whether positive or negative. The authors and contributors make no guarantees and accept no liability.
 Use at your own discretion, and only if you understand and accept all terms outlined above.
 ---
 License Effective Date: 2026-07-26  
-Branch: Custom-build  
+Branch: dev  
 Status: Use with caution and at your own risk (Tested and certified as at present date)
 ---
 ## Acknowledgments
 This branch was created for custom builds and development. We appreciate your patience, feedback, and understanding as we work to improve the build process and workflows.
-Thank you for testing and helping make KernelSU better.
+Thank you for testing and helping make KSU_Builder better.

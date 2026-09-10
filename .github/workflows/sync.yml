@@ -1,4 +1,4 @@
-name: Sync Upstream Daily
+name: Sync Upstream Updates
 
 on:
   schedule:

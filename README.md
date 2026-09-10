@@ -433,6 +433,7 @@ For more information, see `LICENSE` in the repository root.
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **1.7** | 2026-09-11 | Refactor release to be prerelease on workflow call and full release on workflow dispatch | `dev` |
 | **1.6** | 2026-09-08 | Refactor workflows to work from secondary repository, implemented the use of PAT to communicate with KernelSU Repo `(for sync.yml)`, dynamic naming of flashable zip file | `dev` |
 | **1.5** | 2026-09-07 | Updated workflow count to 7, designated `kernel.yml` as main standalone, added `kernel_build.yml` (extra), updated `Kernel_&_Manager_build.yml` with dynamic `kernel_name` and Telegram `--data-urlencode` payload fixes. | `dev` |
 | **1.4** | 2026-09-05 | Added kernel.yml for standalone kernel builds & supported `clang-r416183b` for faster build | `dev` |

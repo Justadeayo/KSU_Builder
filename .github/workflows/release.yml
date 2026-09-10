@@ -46,19 +46,39 @@ jobs:
         with:
           path: release_assets/
 
+      - name: Determine Release Configuration
+        id: config
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_call" ]; then
+            echo "IS_PRERELEASE=true" >> $GITHUB_ENV
+          else
+            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+          fi
+
+          ZIP_PATH=$(find release_assets -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_PATH" ]; then
+            ZIP_NAME=$(basename "$ZIP_PATH")
+            
+            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/${ZIP_NAME}"
+            echo "ZIP_URL=${DOWNLOAD_URL}" >> $GITHUB_ENV
+          else
+            echo "ZIP_URL=No zip file generated" >> $GITHUB_ENV
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           name: Release ${{ env.TAG_NAME }}
-          generate_release_notes: true
+          generate_release_notes: false
           body: |
             * Synced with Upstream Changes.
             * Latest patch included
+            * Updated Kernel Zip: ${{ env.ZIP_URL }}
             
             ~by Justus26🎖️
           files: |
             release_assets/**/*.apk
             release_assets/**/*.zip
           draft: false
-          prerelease: false
+          prerelease: ${{ env.IS_PRERELEASE == 'true' }}
