@@ -13,7 +13,7 @@ env:
   TZ: "Africa/Lagos"
   CLANG_VERSION: "clang-r563880c"
   KERNEL_SOURCE: "https://github.com/Justadeayo/android_kernel_xiaomi_violet"
-  KERNEL_BRANCH: "sixteen"
+  KERNEL_BRANCH: "17"
   DEFCONFIG_NAME: "vendor/violet-perf_defconfig"
   DEVICE_CODENAME: "violet"
   BUILD_COMMIT: "Synced with upstream changes 💯"
@@ -161,7 +161,7 @@ jobs:
 
       - name: Make AnyKernel3
         run: |
-          ZIP_NAME="${{ env.DEVICE_CODENAME }}_${{ env.KERNEL_NAME }}_KSU_$(date +"%Y%m%d_%H%M")"
+          ZIP_NAME="${{ env.KERNEL_NAME }}_${{ env.DEVICE_CODENAME }}_KernelSU_$(date +"%Y%m%d_%H%M")"
           BOOT_DIR="kernel/out/arch/arm64/boot"
           
           git clone -b master https://github.com/Justadeayo/AnyKernel3.git
@@ -184,8 +184,6 @@ jobs:
           
           cd AnyKernel3
           sed -i "s/device.name1=.*/device.name1=${{ env.DEVICE_CODENAME }}/" anykernel.sh
-          
-          sed -i -E 's/^(kernel\.string=).*/\1by Justus26 🎖️/' anykernel.sh
           
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ env.CLANG_VERSION }}/bin"
           CLANG_VER=$("${CLANG_ROOT}/clang" --version | head -n1 | sed 's/(https.*//' | sed 's/ version//' | xargs)
