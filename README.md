@@ -90,7 +90,7 @@ Interactive, manually triggered workflow allowing users to pass arbitrary kernel
 | `kernel_branch` | String | Target branch | *None (Required)* |
 | `defconfig_name` | String | Relative defconfig path | *None (Required)* |
 | `device_codename` | String | Codename for AnyKernel3 branding | `violet` |
-| `ksu_type` | Choice | `None`, `KernelSU`, `ReSukiSU-with-susfs` | `KernelSU` |
+| `ksu_type` | Choice | `None`, `KernelSU` | `KernelSU` |
 | `BUILD_COMMIT` | String | Build notes/description | `Synced with upstream changes 💯` |
 | `telegram_chat_id` | String | Optional chat ID override | Secret fallback |
 | `telegram_bot_token` | String | Optional bot token override | Secret fallback |
@@ -98,7 +98,6 @@ Interactive, manually triggered workflow allowing users to pass arbitrary kernel
 * **Advanced Capabilities:**
   * Dynamic `kernel_name` input to customize build headers, zip file name and notification branding.
   * Robust URL encoding using `--data-urlencode` for multi-line Telegram payload stability.
-  * Integrated **SuSFS 4.14 patch application** when `ReSukiSU-with-susfs` is selected.
   * Direct delivery of compiled Manager APK and AnyKernel3 flashable ZIP via Telegram.
   * Instant Telegram log forwarding on compilation failure (`error_logs.zip` with 35-line preview).
   
@@ -117,7 +116,7 @@ Main standalone, manually triggered workflow designed to build the kernel image 
 | `kernel_branch` | String | Target branch | `16.2` |
 | `defconfig_name` | String | Relative defconfig path | `vendor/sdmsteppe-perf_defconfig` |
 | `device_codename` | String | Codename for AnyKernel3 branding | `violet` |
-| `ksu_type` | Choice | `None`, `KernelSU`, `ReSukiSU-with-susfs` | `KernelSU` |
+| `ksu_type` | Choice | `None`, `KernelSU`, `KernelSU with SUSFS`, `ReSukiSU`, `ReSukiSU with SUSFS` | `KernelSU` |
 | `BUILD_COMMIT` | String | Build notes/description | `Synced with upstream changes 💯` |
 | `telegram_chat_id` | String | Optional chat ID override | Secret fallback |
 | `telegram_bot_token` | String | Optional bot token override | Secret fallback |
@@ -170,7 +169,7 @@ Syncs the core KernelSU repository with upstream (`backslashxx/KernelSU`), authe
 1. Go to **Actions** → **Kernel & Manager Build**.
 2. Click **Run workflow**.
 3. Fill in your **Kernel Name**, **Kernel Source Repo**, **Branch**, **Defconfig**, and **Device Codename**.
-4. Select your desired **KernelSU Version** (`KernelSU`, `ReSukiSU-with-susfs`, or `None`).
+4. Select your desired **KernelSU Version** (`KernelSU` or `None`).
 5. Trigger build and monitor progress in Telegram or Actions logs.
 
 ### Scenario B: Trigger Automated Manager Build
@@ -429,10 +428,12 @@ By using these workflows, you acknowledge:
 For more information, see `LICENSE` in the repository root.
 ---
 ---
+---
 ## 📑 Version History
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **1.8** | 2026-09-11 | Stripped out SUSFS patch URL dependencies across all active kernel workflows | `dev` |
 | **1.7** | 2026-09-11 | Refactor release to be prerelease on workflow call and full release on workflow dispatch | `dev` |
 | **1.6** | 2026-09-08 | Refactor workflows to work from secondary repository, implemented the use of PAT to communicate with KernelSU Repo `(for sync.yml)`, dynamic naming of flashable zip file | `dev` |
 | **1.5** | 2026-09-07 | Updated workflow count to 7, designated `kernel.yml` as main standalone, added `kernel_build.yml` (extra), updated `Kernel_&_Manager_build.yml` with dynamic `kernel_name` and Telegram `--data-urlencode` payload fixes. | `dev` |
@@ -443,6 +444,6 @@ For more information, see `LICENSE` in the repository root.
 | **1.0** | 2026-07-20 | Initial automated kernel & manager build release | `test` |
 
 ---
-**Last Updated:** 2026-09-08  
-**Primary Branches:** dev  
+**Last Updated:** 2026-09-11 
+**Primary Branches:** dev, test
 **Status:** ⚠️ Development Phase

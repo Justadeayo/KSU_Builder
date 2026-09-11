@@ -50,15 +50,13 @@ on:
         default: "violet"
 
       ksu_type:
-        description: KernelSU Version
+        description: KernelSU
         required: false
         type: choice
         options:
           - None
           - KernelSU
-          - KernelSU-with-susfs
           - ReSukiSU
-          - ReSukiSU-with-susfs
         default: KernelSU
 
       BUILD_COMMIT:
@@ -140,7 +138,12 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
           
-          git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
+          if [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
+            git clone --depth=1 https://github.com/skye-tachyon/KernelSU.git KSU_REPO
+          else
+            git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
+          fi
+          
           cd KSU_REPO
           KSU_LOG=$(git log -1 --format="%s" | tr -d '"\n')
           KSU_HASH=$(git rev-parse --short HEAD)
@@ -149,19 +152,13 @@ jobs:
           echo "LAST_KSU_COMMIT=${KSU_LOG}" >> $GITHUB_ENV
           echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ inputs.BUILD_COMMIT }}" >> $GITHUB_ENV
-          
-          if [[ "${{ inputs.ksu_type }}" == *"susfs"* ]]; then
-            echo "SUSFS_LABEL=Yes" >> $GITHUB_ENV
-          else
-            echo "SUSFS_LABEL=N/A" >> $GITHUB_ENV
-          fi
 
       - name: Send Build Start Message
         run: |
           START_MSG="🛠 *${{ inputs.kernel_name }} Kernel Build Started!*
 
           *Device*: \`${{ inputs.device_codename }}\`
-          *Root*: \`${{ inputs.ksu_type }}\`
+          *Root Variant*: \`${{ inputs.ksu_type }}\`
           *Status*: Compilation in progress..."
 
           curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -184,6 +181,28 @@ jobs:
               curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ inputs.clang_version }}.tar.gz
             fi
             tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
+          fi
+
+      - name: Setup KernelSU & Configure Defconfig
+        run: |
+          cd kernel
+          DEFCONFIG="arch/arm64/configs/${{ inputs.defconfig_name }}"
+
+          if [[ "${{ inputs.ksu_type }}" == "KernelSU"* ]]; then
+            curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
+            sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
+            bash setup.sh master
+          elif [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
+            curl -LSs "https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
+            bash setup.sh master
+          fi
+          
+          if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
+            echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+            echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
+            echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
+            echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
           fi
 
       - name: Compile Kernel
@@ -210,51 +229,8 @@ jobs:
           cd kernel
           mkdir -p out
           
-          case "${{ inputs.ksu_type }}" in
-            KernelSU*|ReSukiSU*)
-              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
-              sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-              bash setup.sh master
-              ;;
-          esac
-          
-          DEFCONFIG="arch/arm64/configs/${{ inputs.defconfig_name }}"
-          
-          if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
-            echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-            echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
-            echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
-            echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
-          fi
-
-          if [[ "${{ inputs.ksu_type }}" == ReSukiSU* ]]; then
-            echo "KSU_LOG: 应用 ReSukiSU 4.14 manual hook patch"
-            wget -O resukisu-4.14.patch \
-              https://raw.githubusercontent.com/ReSukiSU/ReSukiSU_Patches/main/scope-minimized/kernel-4.14.patch \
-              || { echo "下载 ReSukiSU 官方 patch 失败"; exit 1; }
-            patch -p1 < resukisu-4.14.patch || { echo "ReSukiSU 官方 patch 应用失败"; cat resukisu-4.14.patch; exit 1; }
-          fi
-
-          if [[ "${{ inputs.ksu_type }}" == *"susfs"* ]]; then
-            echo "KSU_LOG: 开启并应用 SUSFS patch"
-            wget https://raw.githubusercontent.com/sanba0519/Kernel-patch/refs/heads/main/susfs_patch_to_4.14.patch -O susfs-4.14.patch
-            patch -p1 < susfs-4.14.patch || { echo "SUSFS patch 应用失败"; exit 1; }
-            
-            # A label cannot be followed directly by a declaration in GNU C89.
-            sed -i 's/^orig_flow:$/orig_flow:;/' fs/notify/fdinfo.c
-            grep -q '^orig_flow:;$' fs/notify/fdinfo.c \
-              || { echo "SUSFS fdinfo 4.14 兼容修正失败"; exit 1; }
-
-            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-          fi
-          
           touch ./.scmversion
           make O=out ${{ inputs.defconfig_name }}
-
-          if [[ "${{ inputs.ksu_type }}" == "KernelSU" ]]; then
-            echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> out/.config
-          fi
 
           if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
             make O=out olddefconfig
@@ -272,7 +248,9 @@ jobs:
 
       - name: Make AnyKernel3
         run: |
-          ZIP_NAME="${{ inputs.kernel_name }}_${{ inputs.device_codename }}_${{ inputs.ksu_type }}_$(date +"%Y%m%d_%H%M")"
+          KSU_LABEL="${{ inputs.ksu_type }}"
+          KSU_LABEL="${KSU_LABEL// /_}"
+          ZIP_NAME="${{ inputs.kernel_name }}_${{ inputs.device_codename }}_${KSU_LABEL}_$(date +"%Y%m%d_%H%M")"
           BOOT_DIR="kernel/out/arch/arm64/boot"
           
           git clone -b master https://github.com/Justadeayo/AnyKernel3.git
@@ -346,7 +324,6 @@ jobs:
           *Linux Ver*: \`${{ env.KERNEL_VER }}\`
           *Compiler*: \`${{ inputs.clang_version }}\`
           *Root*: \`${{ inputs.ksu_type }}\`
-          *SUSFS*: \`${{ env.SUSFS_LABEL }}\`
           *Size*: \`${FILE_SIZE}\`
           *Duration*: \`${MINS}m ${SECS}s\`
           *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`"
@@ -373,7 +350,7 @@ jobs:
           FAIL_MSG="*Build Failed!* ❌
 
           *Device*: \`${{ inputs.device_codename }}\`
-          *KernelSU*: \`${{ inputs.ksu_type }}\`
+          *KernelSU Variant*: \`${{ inputs.ksu_type }}\`
           *Duration*: \`${MINS}m ${SECS}s\`
           *Run Link*: [View Actions Log](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
@@ -390,4 +367,3 @@ jobs:
               -d "disable_web_page_preview=true" \
               --data-urlencode "text=${FAIL_MSG}"
           fi
-          
