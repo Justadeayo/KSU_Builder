@@ -56,6 +56,8 @@ on:
         options:
           - None
           - KernelSU
+          - KernelSU-with-susfs
+          - ReSukiSU
           - ReSukiSU-with-susfs
         default: KernelSU
 
@@ -148,7 +150,7 @@ jobs:
           echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ inputs.BUILD_COMMIT }}" >> $GITHUB_ENV
           
-          if [[ "${{ inputs.ksu_type }}" == "ReSukiSU-with-susfs" ]]; then
+          if [[ "${{ inputs.ksu_type }}" == *"susfs"* ]]; then
             echo "SUSFS_LABEL=Yes" >> $GITHUB_ENV
           else
             echo "SUSFS_LABEL=N/A" >> $GITHUB_ENV
@@ -209,12 +211,7 @@ jobs:
           mkdir -p out
           
           case "${{ inputs.ksu_type }}" in
-            "KernelSU")
-              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
-              sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-              bash setup.sh master
-              ;;
-            "ReSukiSU-with-susfs")
+            KernelSU*|ReSukiSU*)
               curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
               sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
               bash setup.sh master
@@ -230,12 +227,25 @@ jobs:
             echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
             echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
           fi
-          
-          if [[ "${{ inputs.ksu_type }}" == "ReSukiSU-with-susfs" ]]; then
-            curl -Lo susfs.patch https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/refs/heads/mainline/Patches/Patch/susfs_patch_to_4.14.patch
-            curl -Lo inline.sh https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/refs/heads/mainline/Patches/susfs_inline_hook_patches.sh
-            patch -p1 < susfs.patch
-            bash inline.sh
+
+          if [[ "${{ inputs.ksu_type }}" == ReSukiSU* ]]; then
+            echo "KSU_LOG: 应用 ReSukiSU 4.14 manual hook patch"
+            wget -O resukisu-4.14.patch \
+              https://raw.githubusercontent.com/ReSukiSU/ReSukiSU_Patches/main/scope-minimized/kernel-4.14.patch \
+              || { echo "下载 ReSukiSU 官方 patch 失败"; exit 1; }
+            patch -p1 < resukisu-4.14.patch || { echo "ReSukiSU 官方 patch 应用失败"; cat resukisu-4.14.patch; exit 1; }
+          fi
+
+          if [[ "${{ inputs.ksu_type }}" == *"susfs"* ]]; then
+            echo "KSU_LOG: 开启并应用 SUSFS patch"
+            wget https://raw.githubusercontent.com/sanba0519/Kernel-patch/refs/heads/main/susfs_patch_to_4.14.patch -O susfs-4.14.patch
+            patch -p1 < susfs-4.14.patch || { echo "SUSFS patch 应用失败"; exit 1; }
+            
+            # A label cannot be followed directly by a declaration in GNU C89.
+            sed -i 's/^orig_flow:$/orig_flow:;/' fs/notify/fdinfo.c
+            grep -q '^orig_flow:;$' fs/notify/fdinfo.c \
+              || { echo "SUSFS fdinfo 4.14 兼容修正失败"; exit 1; }
+
             echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
           fi
           
@@ -380,3 +390,4 @@ jobs:
               -d "disable_web_page_preview=true" \
               --data-urlencode "text=${FAIL_MSG}"
           fi
+          
