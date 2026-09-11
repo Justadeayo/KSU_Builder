@@ -56,7 +56,6 @@ on:
         options:
           - None
           - KernelSU
-          - ReSukiSU-with-susfs
         default: KernelSU
 
       BUILD_COMMIT:
@@ -158,12 +157,6 @@ jobs:
           echo "LAST_KSU_COMMIT=${KSU_LOG}" >> $GITHUB_ENV
           echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ inputs.BUILD_COMMIT }}" >> $GITHUB_ENV
-          
-          if [[ "${{ inputs.ksu_type }}" == "ReSukiSU-with-susfs" ]]; then
-            echo "SUSFS_LABEL=Yes" >> $GITHUB_ENV
-          else
-            echo "SUSFS_LABEL=N/A" >> $GITHUB_ENV
-          fi
 
       - name: Send Build Start Message
         run: |
@@ -219,18 +212,11 @@ jobs:
           cd kernel
           mkdir -p out
           
-          case "${{ inputs.ksu_type }}" in
-            "KernelSU")
-              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
-              sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-              bash setup.sh master
-              ;;
-            "ReSukiSU-with-susfs")
-              curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
-              sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-              bash setup.sh master
-              ;;
-          esac
+          if [[ "${{ inputs.ksu_type }}" == "KernelSU" ]]; then
+            curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
+            sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
+            bash setup.sh master
+          fi
           
           DEFCONFIG="arch/arm64/configs/${{ inputs.defconfig_name }}"
           
@@ -240,14 +226,6 @@ jobs:
             echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
             echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
             echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
-          fi
-          
-          if [[ "${{ inputs.ksu_type }}" == "ReSukiSU-with-susfs" ]]; then
-            curl -Lo susfs.patch https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/refs/heads/mainline/Patches/Patch/susfs_patch_to_4.14.patch
-            curl -Lo inline.sh https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/refs/heads/mainline/Patches/susfs_inline_hook_patches.sh
-            patch -p1 < susfs.patch
-            bash inline.sh
-            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
           fi
           
           touch ./.scmversion
@@ -364,7 +342,6 @@ jobs:
           *Linux Ver*: \`${{ env.KERNEL_VER }}\`
           *Compiler*: \`${{ inputs.clang_version }}\`
           *Root*: \`${{ inputs.ksu_type }}\`
-          *SUSFS*: \`${{ env.SUSFS_LABEL }}\`
           *Size*: \`${FILE_SIZE}\`
           *Duration*: \`${MINS}m ${SECS}s\`
           *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`"
