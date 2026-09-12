@@ -5,7 +5,19 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      is_prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      is_prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   Full-Release:
@@ -49,11 +61,18 @@ jobs:
       - name: Determine Release Configuration
         id: config
         run: |
-          if [ "${{ github.event_name }}" = "workflow_call" ]; then
-            echo "IS_PRERELEASE=true" >> $GITHUB_ENV
-          else
-            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+          # Use input if present; otherwise default based on event type
+          IF_PRERELEASE="${{ inputs.is_prerelease }}"
+          
+          if [ -z "$IF_PRERELEASE" ]; then
+            if [ "${{ github.event_name }}" = "workflow_call" ]; then
+              IF_PRERELEASE="true"
+            else
+              IF_PRERELEASE="false"
+            fi
           fi
+
+          echo "IS_PRERELEASE=${IF_PRERELEASE}" >> $GITHUB_ENV
 
           ZIP_PATH=$(find release_assets -name "*.zip" | head -n 1)
           if [ -n "$ZIP_PATH" ]; then
