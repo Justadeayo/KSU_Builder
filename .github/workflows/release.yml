@@ -20,13 +20,13 @@ on:
         default: true
 
 jobs:
-  Full-Release:
+  build:
     uses: ./.github/workflows/automated.yml
     secrets: inherit
 
   release:
     needs:
-      - Full-Release
+      - build
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -61,18 +61,17 @@ jobs:
       - name: Determine Release Configuration
         id: config
         run: |
-          # Use input if present; otherwise default based on event type
-          IF_PRERELEASE="${{ inputs.is_prerelease }}"
+          INPUT_VAL="${{ inputs.is_prerelease }}"
           
-          if [ -z "$IF_PRERELEASE" ]; then
-            if [ "${{ github.event_name }}" = "workflow_call" ]; then
-              IF_PRERELEASE="true"
-            else
-              IF_PRERELEASE="false"
-            fi
+          if [ -n "$INPUT_VAL" ]; then
+            IS_PRE="$INPUT_VAL"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            IS_PRE="false"
+          else
+            IS_PRE="true"
           fi
 
-          echo "IS_PRERELEASE=${IF_PRERELEASE}" >> $GITHUB_ENV
+          echo "IS_PRERELEASE=${IS_PRE}" >> $GITHUB_ENV
 
           ZIP_PATH=$(find release_assets -name "*.zip" | head -n 1)
           if [ -n "$ZIP_PATH" ]; then

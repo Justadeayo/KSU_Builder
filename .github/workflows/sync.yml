@@ -2,8 +2,14 @@ name: Sync Upstream Updates
 
 on:
   schedule:
-    - cron: '30 0 */15 * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
+    inputs:
+      trigger_release:
+        description: 'Trigger release.yml after successful sync'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -74,7 +80,7 @@ jobs:
           "
 
       - name: Trigger Release Workflow for Violet
-        if: env.SYNC_NEEDED == 'true'
+        if: env.SYNC_NEEDED == 'true' && github.event.inputs.trigger_release == 'true'
         run: |
           gh workflow run release.yml -R Justadeayo/KSU_Builder --ref dev
         env:

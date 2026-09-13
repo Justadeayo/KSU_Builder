@@ -126,6 +126,7 @@ Main standalone, manually triggered workflow designed to build the kernel image 
   * Automatic fragment config appending (`vendor/debugfs.config`, `vendor/violet.config`) and `-O3` optimization overrides.
   * Direct delivery of the AnyKernel3 flashable ZIP to Telegram upon success.
   * Automatic failure reporting and `error_logs.zip` attachment on compilation failure.
+  
 ---
 ### 5. `kernel_build.yml` — Kernel Build (extra)
 **Path:** `.github/workflows/kernel_build.yml`
@@ -135,33 +136,47 @@ Secondary extra standalone kernel build workflow designed for additional testing
 * **Key Features:**
   * Provides a lightweight extra environment for building custom kernel zips.
   * Optimized for quick testing iterations alongside the main `kernel.yml` pipeline.
+  
 ---
 ### 6. `release.yml` — Formal Release Publishing
 **Path:** `.github/workflows/release.yml`
-Orchestrates full production releases whenever a version tag (e.g., `v1.0.0`) is pushed or when called programmatically.
+Orchestrates production and pre-release publications whenever a version tag (e.g., `v1.0.0`) is pushed, when invoked via dispatch, or when called programmatically.
 * **Triggers:**
   * Tag Push: `v*`
   * Workflow call (`workflow_call`)
   * Manual dispatch (`workflow_dispatch`)
+* **Input Options:**
+
+| Input Field | Type | Options / Description | Default |
+| :--- | :--- | :--- | :--- |
+| `is_prerelease` | Boolean | Force publishing output as a GitHub Pre-release | `false` (Dispatch) / `true` (Call) |
+
 * **Behavior:**
-  1. Triggers `automated.yml` to produce fresh kernel ZIPs and Manager APKs.
+  1. Invokes the `build` job calling `automated.yml` to compile kernel ZIPs and Manager APKs.
   2. Calculates incremental build version tags if run manually (e.g., `v3.3.0-<number>`).
-  3. Publishes an official GitHub Release attached with all `.apk` and `.zip` artifacts.
-  
+  3. Evaluates release configuration: defaults to full release on `v*` tag pushes, and defaults safely to pre-release for external programmatic calls.
+  4. Publishes an official GitHub Release attached with all `.apk` and `.zip` artifacts. 
+   
 ---
 ### 7. `sync.yml` — Upstream Synchronization
 **Path:** `.github/workflows/sync.yml`  
-Syncs the core KernelSU repository with upstream (`backslashxx/KernelSU`), authenticated via Personal Access Token (`SYNC_PAT`), and dispatches a build run on a separate builder repository (`Justadeayo/KSU_Builder`).
+Syncs the core KernelSU repository daily with upstream (`backslashxx/KernelSU`), authenticated via Personal Access Token (`SYNC_PAT`), with optional downstream release triggering via manual dispatch.
 * **Triggers:**
-  * Scheduled Cron: Every 15 days (`00:30 UTC`)
+  * Scheduled Cron: Daily at Midnight (`00:00 UTC`)
   * Manual dispatch (`workflow_dispatch`)
+* **Input Options:**
+
+| Input Field | Type | Options / Description | Default |
+| :--- | :--- | :--- | :--- |
+| `trigger_release` | Boolean | Option to trigger `release.yml` on `Justadeayo/KSU_Builder` after a successful sync | `false` |
+
 * **Behavior:**
   1. Checks out `Justadeayo/KernelSU` on branch `master` using `${{ secrets.SYNC_PAT }}`.
   2. Compares local `master` against `upstream/master` (or `upstream/main`).
   3. If updates exist, performs a hard reset (`git reset --hard`) to align history and force-pushes to origin `master`.
   4. Formats multi-line commit messages using Python script encoding and sends a Markdown notification via Telegram.
-  5. Triggers `release.yml` on the secondary builder repository (`Justadeayo/KSU_Builder`) targeting the `dev` branch via `gh workflow run`.
-
+  5. **Release Trigger:** Automatic scheduled daily runs will **never** trigger `release.yml`. `release.yml` on `Justadeayo/KSU_Builder` (`dev` branch) is only triggered if manually dispatched via `workflow_dispatch` with `trigger_release` set to `true`.
+    
 ---
 
 ## 🚀 Quick Start Scenarios
@@ -184,11 +199,10 @@ git push origin v3.3.0
  * release.yml will automatically build the full stack and publish a release.
  
  
-### Scenario D: Sync with Upstream & Build
+### Scenario D: Sync with Upstream
 **Use:** `sync.yml`
-* Triggered automatically via cron or manually via **Workflow Dispatch**.
-* Authenticates using `SYNC_PAT` to sync `Justadeayo/KernelSU` with upstream changes.
-* Dispatches `release.yml` on `Justadeayo/KSU_Builder` (`dev` branch) only when new upstream changes are merged.
+* **Automated Run:** Triggers daily at `00:00 UTC` to keep repository history aligned with upstream. Automated runs perform sync only and strictly bypass downstream releases.
+* **Manual Dispatch:** Run manually via **Actions** → **Sync Upstream Updates**. Optionally check the **"Trigger release.yml after successful sync"** toggle (`trigger_release: true`) to dispatch `release.yml` on `Justadeayo/KSU_Builder` (`dev` branch) upon sync completion.
 
 ---
 
@@ -433,6 +447,7 @@ For more information, see `LICENSE` in the repository root.
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **1.9** | 2026-09-13 | Updated `sync.yml` to daily cron schedule; renamed `release.yml` job from `Full-Release` to `build`; refactored prerelease logic to default external calls to prerelease | `dev` |
 | **1.8** | 2026-09-11 | Stripped out SUSFS patch URL dependencies across all active kernel workflows | `dev` |
 | **1.7** | 2026-09-11 | Refactor release to be prerelease on workflow call and full release on workflow dispatch | `dev` |
 | **1.6** | 2026-09-08 | Refactor workflows to work from secondary repository, implemented the use of PAT to communicate with KernelSU Repo `(for sync.yml)`, dynamic naming of flashable zip file | `dev` |
@@ -444,6 +459,6 @@ For more information, see `LICENSE` in the repository root.
 | **1.0** | 2026-07-20 | Initial automated kernel & manager build release | `test` |
 
 ---
-**Last Updated:** 2026-09-11 
+**Last Updated:** 2026-09-13 
 **Primary Branches:** dev, test
 **Status:** ⚠️ Development Phase
