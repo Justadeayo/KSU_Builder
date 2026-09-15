@@ -220,9 +220,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Patch Repositories to Justadeayo
         run: |
           find app/src/ -type f \( -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle*" \) -exec sed -i 's|backslashxx/KernelSU|Justadeayo/KSU_Builder|g' {} +
@@ -277,9 +274,6 @@ jobs:
           else
             echo "UPLOAD=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Download gradle manager artifact
         uses: actions/download-artifact@v4
