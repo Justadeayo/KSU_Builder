@@ -14,6 +14,7 @@ on:
         required: true
         type: choice
         options:
+          - clang-r596125
           - clang-r416183b
           - clang-3289846
           - clang-r450784e
@@ -26,6 +27,7 @@ on:
           - clang-r563880c
           - clang-r574158
           - clang-stable
+        default: "clang-r596125"
 
       kernel_source:
         description: Kernel Source Repo URL
@@ -97,14 +99,14 @@ jobs:
         run: |
           TG_CHAT="${{ inputs.telegram_chat_id }}"
           TG_TOKEN="${{ inputs.telegram_bot_token }}"
-          
+
           if [ -z "$TG_CHAT" ]; then
             TG_CHAT="${{ secrets.TELEGRAM_CHAT_ID }}"
           fi
           if [ -z "$TG_TOKEN" ]; then
             TG_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
           fi
-          
+
           echo "TELEGRAM_CHAT_ID=${TG_CHAT}" >> $GITHUB_ENV
           echo "TELEGRAM_BOT_TOKEN=${TG_TOKEN}" >> $GITHUB_ENV
 
@@ -137,18 +139,18 @@ jobs:
       - name: Prepare Metadata
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
-          
+
           if [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
             git clone --depth=1 https://github.com/skye-tachyon/KernelSU.git KSU_REPO
           else
             git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
           fi
-          
+
           cd KSU_REPO
           KSU_LOG=$(git log -1 --format="%s" | tr -d '"\n')
           KSU_HASH=$(git rev-parse --short HEAD)
           cd ..
-          
+
           echo "LAST_KSU_COMMIT=${KSU_LOG}" >> $GITHUB_ENV
           echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ inputs.BUILD_COMMIT }}" >> $GITHUB_ENV
@@ -173,14 +175,23 @@ jobs:
           cd toolchains
           if [[ "${{ inputs.clang_version }}" == "clang-r416183b" ]]; then
             git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git ${{ inputs.clang_version }}
+          elif [[ "${{ inputs.clang_version }}" == "clang-r596125" ]]; then
+            curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel/${{ inputs.clang_version }}.tar.gz
+            tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
           else
             OLD_TAGS=("clang-r450784e" "clang-r475365b" "clang-r487747c" "clang-r498229b" "clang-r510928")
             if [[ " ${OLD_TAGS[@]} " =~ " ${{ inputs.clang_version }} " ]]; then
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ inputs.clang_version }}.tar.gz
+              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ inputs.clang_version }}.tar.gz
             else
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ inputs.clang_version }}.tar.gz
+              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/${{ inputs.clang_version }}.tar.gz
             fi
             tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
+          fi
+          cd ..
+
+          if [ ! -x "toolchains/${{ inputs.clang_version }}/bin/clang" ]; then
+            echo "::error::clang binary missing after extracting ${{ inputs.clang_version }} — download or extraction failed."
+            exit 1
           fi
 
       - name: Setup KernelSU & Configure Defconfig
@@ -196,7 +207,7 @@ jobs:
             curl -LSs "https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
             bash setup.sh master
           fi
-          
+
           if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
             echo "CONFIG_KSU=y" >> "$DEFCONFIG"
             echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
@@ -225,22 +236,22 @@ jobs:
           export STRIP="${CLANG_ROOT}/llvm-strip"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          
+
           cd kernel
           mkdir -p out
-          
+
           touch ./.scmversion
-          make O=out ${{ inputs.defconfig_name }}
+          make O=out ${{ inputs.defconfig_name }} CLANG_TRIPLE=aarch64-linux-gnu-
 
           if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
-            make O=out olddefconfig
+            make O=out olddefconfig CLANG_TRIPLE=aarch64-linux-gnu-
           fi
-          
+
           set +e
-          make -j$(nproc) O=out 2>&1 | tee "${GITHUB_WORKSPACE}/build.log"
+          make -j$(nproc) O=out CLANG_TRIPLE=aarch64-linux-gnu- 2>&1 | tee "${GITHUB_WORKSPACE}/build.log"
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
-          
+
           if [ $BUILD_STATUS -ne 0 ]; then
             echo "Kernel compilation failed!"
             exit 1
@@ -252,41 +263,41 @@ jobs:
           KSU_LABEL="${KSU_LABEL// /_}"
           ZIP_NAME="${{ inputs.kernel_name }}_${{ inputs.device_codename }}_${KSU_LABEL}_$(date +"%Y%m%d_%H%M")"
           BOOT_DIR="kernel/out/arch/arm64/boot"
-          
+
           git clone -b master https://github.com/Justadeayo/AnyKernel3.git
-          
+
           if [ -f $BOOT_DIR/Image.gz ]; then
             cp $BOOT_DIR/Image.gz AnyKernel3/Image.gz
           elif [ -f $BOOT_DIR/Image.gz-dtb ]; then
             cp $BOOT_DIR/Image.gz-dtb AnyKernel3/Image.gz-dtb
           fi
-          
+
           if [ -f $BOOT_DIR/dtb.img ]; then
             cp $BOOT_DIR/dtb.img AnyKernel3/dtb
           elif [ -f $BOOT_DIR/dtb ]; then
             cp $BOOT_DIR/dtb AnyKernel3/dtb
           fi
-          
+
           if [ -f $BOOT_DIR/dtbo.img ]; then
             cp $BOOT_DIR/dtbo.img AnyKernel3/dtbo.img
           fi
-          
+
           cd AnyKernel3
           sed -i "s/device.name1=.*/device.name1=${{ inputs.device_codename }}/" anykernel.sh
-          
+
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
           CLANG_VER=$("${CLANG_ROOT}/clang" --version | head -n1 | sed 's/(https.*//' | sed 's/ version//' | xargs)
           BUILD_DATE=$(date +'%Y-%m-%d %H:%M WAT')
-          
+
           if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
             sed -i "s|ksu_supported=false|ksu_supported=true|" anykernel.sh
           fi
-          
+
           sed -i "s|##CLANG_VERSION##|${CLANG_VER}|" anykernel.sh
           sed -i "s|##BUILD_DATE##|${BUILD_DATE}|" anykernel.sh
-          
+
           zip -r9 ../"${ZIP_NAME}.zip" * -x .git
-          
+
           echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
       - name: Upload Kernel ZIP Artifact
@@ -301,7 +312,7 @@ jobs:
           DURATION=$((END_TIME - BUILD_START))
           MINS=$((DURATION / 60))
           SECS=$((DURATION % 60))
-          
+
           ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
           FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
 
