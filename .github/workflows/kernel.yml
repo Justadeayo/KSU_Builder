@@ -141,7 +141,7 @@ jobs:
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
 
           if [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
-            git clone --depth=1 https://github.com/skye-tachyon/KernelSU.git KSU_REPO
+            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git KSU_REPO
           else
             git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
           fi
