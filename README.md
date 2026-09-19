@@ -135,6 +135,7 @@ Secondary extra standalone kernel build workflow designed for additional testing
   * Manual dispatch (`workflow_dispatch`)
 * **Key Features:**
   * Provides a lightweight extra environment for building custom kernel zips.
+  * Dynamic KSU REPO branch to aid better testing
   * Optimized for quick testing iterations alongside the main `kernel.yml` pipeline.
   
 ---
@@ -447,6 +448,7 @@ For more information, see `LICENSE` in the repository root.
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **2.0** | 2026-09-19 | Refactored `kernel_build.yml` to be a dynamic version of `kernel.yml` in terms of KSU_REPO branch, updated build manager workflow steps to match upstream | `dev` |
 | **1.9** | 2026-09-13 | Updated `sync.yml` to daily cron schedule; renamed `release.yml` job from `Full-Release` to `build`; refactored prerelease logic to default external calls to prerelease | `dev` |
 | **1.8** | 2026-09-11 | Stripped out SUSFS patch URL dependencies across all active kernel workflows | `dev` |
 | **1.7** | 2026-09-11 | Refactor release to be prerelease on workflow call and full release on workflow dispatch | `dev` |
