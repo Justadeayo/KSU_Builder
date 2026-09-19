@@ -65,60 +65,14 @@ jobs:
           HASH=$(sha256sum pr-cert.der | awk '{print $1}')
           echo "expected_hash=$HASH" >> $GITHUB_OUTPUT
 
-  build-ksuinit:
-    needs: generate-key
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout KernelSU Repository
-        uses: actions/checkout@v4
-        with:
-          repository: 'Justadeayo/KernelSU'
-          ref: 'master'
-          fetch-depth: 0
-
-      - name: Setup rustup
-        run: |
-          rustup update stable
-          rustup target add aarch64-linux-android
-          rustup target add x86_64-linux-android
-
-      - uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r29
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-          cache-targets: false
-
-      - name: Build ksuinit
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          source .github/scripts/setup-rust-build.sh aarch64-linux-android 26
-          BUILTINS="$($CLANG_PATH --print-resource-dir)/lib/linux/libclang_rt.builtins-aarch64-android.a"
-          test -f "$BUILTINS"
-          export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wno-unused-command-line-argument -C link-arg=$BUILTINS"
-          cargo build --package ksuinit --target=aarch64-linux-android --release
-
-      - name: Upload ksuinit artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ksuinit-aarch64
-          path: target/aarch64-linux-android/release/ksuinit
-
   build-ksud:
-    needs: [build-ksuinit]
     strategy:
       matrix:
         include:
           - target: aarch64-linux-android
             os: ubuntu-latest
-            pack_ksuinit: true
           - target: armv7-linux-androideabi
             os: ubuntu-latest
-            pack_ksuinit: false
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout KernelSU Repository
@@ -142,13 +96,9 @@ jobs:
         with:
           workspaces: . -> target
           cache-targets: false
-
-      - name: Download ksuinit artifact
-        if: ${{ matrix.pack_ksuinit }}
-        uses: actions/download-artifact@v4
-        with:
-          name: ksuinit-aarch64
-          path: userspace/ksud/src/assets/
+          
+      - name: Refresh adb_client pin
+        run: cargo update -p adb_client
 
       - name: Build ksud
         env:
