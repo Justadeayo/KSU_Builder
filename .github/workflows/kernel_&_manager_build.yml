@@ -88,8 +88,6 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
 
   Kernel_CI:
-    if: always() && !cancelled() && (needs.build-manager.result == 'success' || needs.build-manager.result == 'skipped')
-    needs: build-manager
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -226,6 +224,7 @@ jobs:
             echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
             echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
             echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> "$DEFCONFIG"
           fi
           
           touch ./.scmversion

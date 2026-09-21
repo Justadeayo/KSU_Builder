@@ -11,7 +11,7 @@ on:
 
 env:
   TZ: "Africa/Lagos"
-  CLANG_VERSION: "clang-r563880c"
+  CLANG_VERSION: "clang-r416183b"
   KERNEL_SOURCE: "https://github.com/Justadeayo/android_kernel_xiaomi_violet"
   KERNEL_BRANCH: "17"
   DEFCONFIG_NAME: "vendor/violet-perf_defconfig"
@@ -23,9 +23,7 @@ jobs:
   build-manager:
     uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
 
-
   Kernel_CI:
-    needs: build-manager
     env:
       TZ: "Africa/Lagos"
       GH_TOKEN: ${{ github.token }}
@@ -72,41 +70,70 @@ jobs:
       - name: Prepare Metadata
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
-          
+
           git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
           cd KSU_REPO
           KSU_LOG=$(git log -1 --format="%s" | tr -d '"\n')
           KSU_HASH=$(git rev-parse --short HEAD)
           cd ..
-          
+
           echo "LAST_KSU_COMMIT=${KSU_LOG}" >> $GITHUB_ENV
           echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ env.BUILD_COMMIT }}" >> $GITHUB_ENV
 
       - name: Send Build Start Message
         run: |
-          START_MSG="🛠 *XCalibur Kernel Build Started!*%0A%0A"
-          START_MSG+="*Device*: \`${{ env.DEVICE_CODENAME }}\`%0A"
-          START_MSG+="*Root*: \`KernelSU\`%0A"
-          START_MSG+="*Status*: Compilation in progress..."
+          START_MSG="🛠 *${{ env.KERNEL_NAME }} Kernel Build Started!*
+
+          *Device*: \`${{ env.DEVICE_CODENAME }}\`
+          *Root*: \`KernelSU\`
+          *Compiler*: \`${{ env.CLANG_VERSION }}\`
+          *Status*: Compilation in progress..."
 
           curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "parse_mode=Markdown" \
             -d "disable_web_page_preview=true" \
-            -d "text=${START_MSG}"
+            --data-urlencode "text=${START_MSG}"
 
       - name: Download AOSP Clang
         run: |
           mkdir -p toolchains/${{ env.CLANG_VERSION }}
           cd toolchains
-          OLD_TAGS=("clang-r450784e")
-          if [[ " ${OLD_TAGS[@]} " =~ " ${{ env.CLANG_VERSION }} " ]]; then
-            curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ env.CLANG_VERSION }}.tar.gz
+
+          if [[ "${{ env.CLANG_VERSION }}" == "clang-r416183b" ]]; then
+            git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git ${{ env.CLANG_VERSION }}
           else
-            curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ env.CLANG_VERSION }}.tar.gz
+            OLD_TAGS=("clang-r450784e" "clang-r475365b" "clang-r487747c" "clang-r498229b" "clang-r510928")
+            if [[ " ${OLD_TAGS[@]} " =~ " ${{ env.CLANG_VERSION }} " ]]; then
+              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ env.CLANG_VERSION }}.tar.gz
+            else
+              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ env.CLANG_VERSION }}.tar.gz
+            fi
+            tar -xf "${{ env.CLANG_VERSION }}.tar.gz" -C ${{ env.CLANG_VERSION }}
           fi
-          tar -xf "${{ env.CLANG_VERSION }}.tar.gz" -C ${{ env.CLANG_VERSION }}
+          cd ..
+
+          if [ ! -x "toolchains/${{ env.CLANG_VERSION }}/bin/clang" ]; then
+            echo "::error::clang binary missing after fetching ${{ env.CLANG_VERSION }} — download or extraction failed."
+            exit 1
+          fi
+
+      - name: Setup KernelSU & Configure Defconfig
+        run: |
+          cd kernel
+          DEFCONFIG="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+
+          curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
+          sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
+          bash setup.sh master
+
+          echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+          echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
+          echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
+          echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
+          echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> "$DEFCONFIG"
 
       - name: Compile Kernel
         run: |
@@ -128,32 +155,28 @@ jobs:
           export STRIP="${CLANG_ROOT}/llvm-strip"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          
+
           cd kernel
           mkdir -p out
-          
-          curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
-          sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-          bash setup.sh master
-          
-          DEFCONFIG="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          
-          echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-          echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-          echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> "$DEFCONFIG"
-          
-          touch ./.scmversion
-          make O=out ${{ env.DEFCONFIG_NAME }}
 
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_SUSFS=y" >> out/.config
-          make O=out olddefconfig
-          
+          touch ./.scmversion
+          make O=out ${{ env.DEFCONFIG_NAME }} CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out olddefconfig CLANG_TRIPLE=aarch64-linux-gnu-
+
+          echo "---------- KSU options in final .config ----------"
+          grep "KSU" out/.config || true
+          echo "--------------------------------------------------"
+
+          if ! grep -q "^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" out/.config; then
+            echo "::error::CONFIG_KSU_TAMPER_SYSCALL_TABLE is not enabled in the final .config — su hooks would be missing, root would fail. Aborting."
+            exit 1
+          fi
+
           set +e
-          make -j$(nproc) O=out 2>&1 | tee "${GITHUB_WORKSPACE}/build.log"
+          make -j$(nproc) O=out CLANG_TRIPLE=aarch64-linux-gnu- 2>&1 | tee "${GITHUB_WORKSPACE}/build.log"
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
-          
+
           if [ $BUILD_STATUS -ne 0 ]; then
             echo "Kernel compilation failed!"
             exit 1
@@ -163,38 +186,38 @@ jobs:
         run: |
           ZIP_NAME="${{ env.KERNEL_NAME }}_${{ env.DEVICE_CODENAME }}_KernelSU_$(date +"%Y%m%d_%H%M")"
           BOOT_DIR="kernel/out/arch/arm64/boot"
-          
+
           git clone -b master https://github.com/Justadeayo/AnyKernel3.git
-          
+
           if [ -f $BOOT_DIR/Image.gz ]; then
-              cp $BOOT_DIR/Image.gz AnyKernel3/Image.gz
+            cp $BOOT_DIR/Image.gz AnyKernel3/Image.gz
           elif [ -f $BOOT_DIR/Image.gz-dtb ]; then
-              cp $BOOT_DIR/Image.gz-dtb AnyKernel3/Image.gz-dtb
+            cp $BOOT_DIR/Image.gz-dtb AnyKernel3/Image.gz-dtb
           fi
-          
+
           if [ -f $BOOT_DIR/dtb.img ]; then
-              cp $BOOT_DIR/dtb.img AnyKernel3/dtb
+            cp $BOOT_DIR/dtb.img AnyKernel3/dtb
           elif [ -f $BOOT_DIR/dtb ]; then
-              cp $BOOT_DIR/dtb AnyKernel3/dtb
+            cp $BOOT_DIR/dtb AnyKernel3/dtb
           fi
-          
+
           if [ -f $BOOT_DIR/dtbo.img ]; then
-              cp $BOOT_DIR/dtbo.img AnyKernel3/dtbo.img
+            cp $BOOT_DIR/dtbo.img AnyKernel3/dtbo.img
           fi
-          
+
           cd AnyKernel3
           sed -i "s/device.name1=.*/device.name1=${{ env.DEVICE_CODENAME }}/" anykernel.sh
-          
+
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ env.CLANG_VERSION }}/bin"
           CLANG_VER=$("${CLANG_ROOT}/clang" --version | head -n1 | sed 's/(https.*//' | sed 's/ version//' | xargs)
           BUILD_DATE=$(date +'%Y-%m-%d %H:%M WAT')
-          
+
           sed -i "s|ksu_supported=false|ksu_supported=true|" anykernel.sh
           sed -i "s|##CLANG_VERSION##|${CLANG_VER}|" anykernel.sh
           sed -i "s|##BUILD_DATE##|${BUILD_DATE}|" anykernel.sh
-          
+
           zip -r9 ../"${ZIP_NAME}.zip" * -x .git
-          
+
           echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
       - name: Upload Kernel ZIP Artifact
@@ -209,29 +232,32 @@ jobs:
           DURATION=$((END_TIME - BUILD_START))
           MINS=$((DURATION / 60))
           SECS=$((DURATION % 60))
-          
+
           ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
           FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
-          
-          SUCCESS_MSG="*=============================*%0A"
-          SUCCESS_MSG+="*   X C A L I B U R  -  K E R N E L  *%0A"
-          SUCCESS_MSG+="*=============================*%0A"
-          SUCCESS_MSG+="%0A"
-          SUCCESS_MSG+="*Developer*: @Justus26🪖%0A"
-          SUCCESS_MSG+="*Device*: \`${{ env.DEVICE_CODENAME }}\`%0A"
-          SUCCESS_MSG+="*Linux Ver*: \`${{ env.KERNEL_VER }}\`%0A"
-          SUCCESS_MSG+="*Compiler*: \`${{ env.CLANG_VERSION }}\`%0A"
-          SUCCESS_MSG+="*Root*: \`KernelSU\`%0A"
-          SUCCESS_MSG+="*Size*: \`${FILE_SIZE}\`%0A"
-          SUCCESS_MSG+="*Duration*: \`${MINS}m ${SECS}s\`%0A"
-          SUCCESS_MSG+="*Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`%0A"
-          SUCCESS_MSG+="Download APK and Zip from latest Release on https://github.com/Justadeayo/KernelSU/releases"
+
+          K_NAME_UPPER=$(echo "${{ env.KERNEL_NAME }}" | sed 's/./& /g' | tr '[:lower:]' '[:upper:]')
+
+          SUCCESS_MSG="=============================
+            ${K_NAME_UPPER}  -  K E R N E L
+          =============================
+
+          *Developer*: @Justus26🪖
+          *Device*: \`${{ env.DEVICE_CODENAME }}\`
+          *Linux Ver*: \`${{ env.KERNEL_VER }}\`
+          *Compiler*: \`${{ env.CLANG_VERSION }}\`
+          *Root*: \`KernelSU\`
+          *Size*: \`${FILE_SIZE}\`
+          *Duration*: \`${MINS}m ${SECS}s\`
+          *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`
+
+          Download APK and Zip from latest Release on https://github.com/Justadeayo/KernelSU/releases"
 
           curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "parse_mode=Markdown" \
             -d "disable_web_page_preview=true" \
-            -d "text=${SUCCESS_MSG}"
+            --data-urlencode "text=${SUCCESS_MSG}"
 
       - name: Send Build Failure Message & Logs
         if: failure()
@@ -249,7 +275,8 @@ jobs:
           FAIL_MSG="*Build Failed!* ❌
 
           *Device*: \`${{ env.DEVICE_CODENAME }}\`
-          *KernelSU*: \`KernelSU\`
+          *Root*: \`KernelSU\`
+          *Compiler*: \`${{ env.CLANG_VERSION }}\`
           *Duration*: \`${MINS}m ${SECS}s\`
           *Run Link*: [View Actions Log](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
@@ -264,5 +291,5 @@ jobs:
               -d "chat_id=${TELEGRAM_CHAT_ID}" \
               -d "parse_mode=Markdown" \
               -d "disable_web_page_preview=true" \
-              -d "text=${FAIL_MSG}"
+              --data-urlencode "text=${FAIL_MSG}"
           fi
