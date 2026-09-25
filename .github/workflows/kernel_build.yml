@@ -310,6 +310,23 @@ jobs:
           zip -r9 ../"${ZIP_NAME}.zip" * -x .git
 
           echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+          
+      - name: Collect Raw Kernel Outputs
+        run: |
+          BOOT_DIR="kernel/out/arch/arm64/boot"
+          mkdir -p raw-outputs
+
+          for f in Image Image.gz Image.gz-dtb dtb.img dtb dtbo.img; do
+            if [ -f "$BOOT_DIR/$f" ]; then
+              cp "$BOOT_DIR/$f" "raw-outputs/$f"
+            fi
+          done
+
+      - name: Upload Raw Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-raw-outputs
+          path: raw-outputs/*
 
       - name: Upload Kernel ZIP Artifact
         uses: actions/upload-artifact@v4
