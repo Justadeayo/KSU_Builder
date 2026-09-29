@@ -176,7 +176,7 @@ jobs:
           if [[ "${{ inputs.clang_version }}" == "clang-r416183b" ]]; then
             git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git ${{ inputs.clang_version }}
           elif [[ "${{ inputs.clang_version }}" == "clang-r596125" ]]; then
-            curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel/${{ inputs.clang_version }}.tar.gz
+            curl -fLO --retry 8 --retry-delay 20 --retry-all-errors --connect-timeout 30 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel/${{ inputs.clang_version }}.tar.gz
             tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
           else
             OLD_TAGS=("clang-r450784e" "clang-r475365b" "clang-r487747c" "clang-r498229b" "clang-r510928")
