@@ -96,7 +96,7 @@ jobs:
             
             ~by Justus26🎖️
           files: |
-            release_assets/**/*.apk
+            release_assets/manager/*.apk
             release_assets/**/*.zip
           draft: false
           prerelease: ${{ env.IS_PRERELEASE == 'true' }}
@@ -105,9 +105,14 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG_NAME: ${{ env.TAG_NAME }}
         run: |
           ZIP_FILE=$(find release_assets -name "*.zip" | head -n 1)
-          FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
+          if [ -f "$ZIP_FILE" ]; then
+            FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
+          else
+            FILE_SIZE="N/A"
+          fi
 
           SUCCESS_MSG="=============================
             X C A L I B U R  -  K E R N E L
@@ -117,10 +122,10 @@ jobs:
           *Device*: \`violet\`
           *Root*: \`KernelSU\`
           *Size*: \`${FILE_SIZE}\`
-          *Tag*: \`${{ env.TAG_NAME }}\`
+          *Tag*: \`${TAG_NAME}\`
           *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`
 
-          Download APK and Zip from latest Release on https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG_NAME }}"
+          Download APK and Zip from latest Release on https://github.com/${{ github.repository }}/releases/tag/${TAG_NAME}"
 
           curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
