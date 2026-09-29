@@ -226,38 +226,33 @@ jobs:
           name: kernel-zip
           path: "*.zip"
 
-      - name: Send Build Completion Message
+      - name: Download Manager Artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: manager
+          path: manager_apk/
+
+      - name: Dispatch Builds to Telegram
         run: |
-          END_TIME=$(date +%s)
-          DURATION=$((END_TIME - BUILD_START))
-          MINS=$((DURATION / 60))
-          SECS=$((DURATION % 60))
-
           ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
-          FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
+          APK_FILE=$(find manager_apk -name "*.apk" 2>/dev/null | head -n 1)
 
-          K_NAME_UPPER=$(echo "${{ env.KERNEL_NAME }}" | sed 's/./& /g' | tr '[:lower:]' '[:upper:]')
+          if [ -f "$ZIP_FILE" ]; then
+            curl -sX POST -F document=@"${ZIP_FILE}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              -F "caption=📦 *${{ env.KERNEL_NAME }} Kernel Zip Build*"
+          fi
 
-          SUCCESS_MSG="=============================
-            ${K_NAME_UPPER}  -  K E R N E L
-          =============================
-
-          *Developer*: @Justus26🪖
-          *Device*: \`${{ env.DEVICE_CODENAME }}\`
-          *Linux Ver*: \`${{ env.KERNEL_VER }}\`
-          *Compiler*: \`${{ env.CLANG_VERSION }}\`
-          *Root*: \`KernelSU\`
-          *Size*: \`${FILE_SIZE}\`
-          *Duration*: \`${MINS}m ${SECS}s\`
-          *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`
-
-          Download APK and Zip from latest Release on https://github.com/Justadeayo/KernelSU/releases"
-
-          curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            -d "disable_web_page_preview=true" \
-            --data-urlencode "text=${SUCCESS_MSG}"
+          if [ -f "$APK_FILE" ]; then
+            curl -sX POST -F document=@"${APK_FILE}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              -F "caption=📱 *KernelSU Manager APK Build*"
+          fi
 
       - name: Send Build Failure Message & Logs
         if: failure()
