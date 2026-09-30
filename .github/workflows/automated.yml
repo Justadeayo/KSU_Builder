@@ -11,7 +11,7 @@ on:
 
 env:
   TZ: "Africa/Lagos"
-  CLANG_VERSION: "clang-r416183b"
+  CLANG_VERSION: "clang-r596125"
   KERNEL_SOURCE: "https://github.com/Justadeayo/android_kernel_xiaomi_violet"
   KERNEL_BRANCH: "17"
   DEFCONFIG_NAME: "vendor/violet-perf_defconfig"
@@ -95,23 +95,22 @@ jobs:
             -d "parse_mode=Markdown" \
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${START_MSG}"
+      - name: Cache Clang Toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: toolchains/${{ env.CLANG_VERSION }}
+          key: clang-${{ env.CLANG_VERSION }}
 
       - name: Download AOSP Clang
+        if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           mkdir -p toolchains/${{ env.CLANG_VERSION }}
           cd toolchains
-
-          if [[ "${{ env.CLANG_VERSION }}" == "clang-r416183b" ]]; then
-            git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git ${{ env.CLANG_VERSION }}
-          else
-            OLD_TAGS=("clang-r450784e" "clang-r475365b" "clang-r487747c" "clang-r498229b" "clang-r510928")
-            if [[ " ${OLD_TAGS[@]} " =~ " ${{ env.CLANG_VERSION }} " ]]; then
-              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ env.CLANG_VERSION }}.tar.gz
-            else
-              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ env.CLANG_VERSION }}.tar.gz
-            fi
-            tar -xf "${{ env.CLANG_VERSION }}.tar.gz" -C ${{ env.CLANG_VERSION }}
-          fi
+          
+          curl -fLO "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel/${{ env.CLANG_VERSION }}.tar.gz"
+          tar -xf "${{ env.CLANG_VERSION }}.tar.gz" -C ${{ env.CLANG_VERSION }}
+          rm -f "${{ env.CLANG_VERSION }}.tar.gz"
           cd ..
 
           if [ ! -x "toolchains/${{ env.CLANG_VERSION }}/bin/clang" ]; then
