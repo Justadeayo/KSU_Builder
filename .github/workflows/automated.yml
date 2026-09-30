@@ -237,6 +237,14 @@ jobs:
         run: |
           ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
           APK_FILE=$(find manager_apk -name "*.apk" 2>/dev/null | head -n 1)
+          
+          if [ -f "$APK_FILE" ]; then
+            curl -sX POST -F document=@"${APK_FILE}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              -F "caption=📱 *KernelSU Manager APK Build*"
+          fi
 
           if [ -f "$ZIP_FILE" ]; then
             curl -sX POST -F document=@"${ZIP_FILE}" \
@@ -244,14 +252,6 @@ jobs:
               -F "chat_id=${TELEGRAM_CHAT_ID}" \
               -F "parse_mode=Markdown" \
               -F "caption=📦 *${{ env.KERNEL_NAME }} Kernel Zip Build*"
-          fi
-
-          if [ -f "$APK_FILE" ]; then
-            curl -sX POST -F document=@"${APK_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=📱 *KernelSU Manager APK Build*"
           fi
 
       - name: Send Build Failure Message & Logs
