@@ -95,6 +95,7 @@ jobs:
             -d "parse_mode=Markdown" \
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${START_MSG}"
+
       - name: Cache Clang Toolchain
         id: cache-clang
         uses: actions/cache@v4
@@ -138,6 +139,7 @@ jobs:
         run: |
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ env.CLANG_VERSION }}/bin"
           export PATH="/usr/lib/ccache:${CLANG_ROOT}:$PATH"
+          export CCACHE_COMPILERCHECK="string:${{ env.CLANG_VERSION }}"
           export CC="ccache ${CLANG_ROOT}/clang"
           export CXX="ccache ${CLANG_ROOT}/clang++"
           export HOSTCC="ccache ${CLANG_ROOT}/clang"
@@ -225,34 +227,6 @@ jobs:
           name: kernel-zip
           path: "*.zip"
 
-      - name: Download Manager Artifact
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: manager
-          path: manager_apk/
-
-      - name: Dispatch Builds to Telegram
-        run: |
-          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
-          APK_FILE=$(find manager_apk -name "*.apk" 2>/dev/null | head -n 1)
-          
-          if [ -f "$APK_FILE" ]; then
-            curl -sX POST -F document=@"${APK_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=📱 *KernelSU Manager APK Build*"
-          fi
-
-          if [ -f "$ZIP_FILE" ]; then
-            curl -sX POST -F document=@"${ZIP_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=📦 *${{ env.KERNEL_NAME }} Kernel Zip Build*"
-          fi
-
       - name: Send Build Failure Message & Logs
         if: failure()
         run: |
@@ -286,4 +260,54 @@ jobs:
               -d "parse_mode=Markdown" \
               -d "disable_web_page_preview=true" \
               --data-urlencode "text=${FAIL_MSG}"
+          fi
+
+  Dispatch:
+    needs:
+      - build-manager
+      - Kernel_CI
+    if: ${{ !cancelled() && needs.Kernel_CI.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - name: Download Kernel ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-zip
+          path: kernel_out/
+
+      - name: Download Manager Artifact
+        if: ${{ needs.build-manager.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: manager
+          path: manager_apk/
+
+      - name: Dispatch Builds to Telegram
+        run: |
+          ZIP_FILE=$(find kernel_out -name "*.zip" | head -n 1)
+          APK_FILE=$(find manager_apk -name "*.apk" 2>/dev/null | head -n 1)
+
+          if [ -n "$APK_FILE" ] && [ -f "$APK_FILE" ]; then
+            curl -sX POST -F document=@"${APK_FILE}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              -F "caption=📱 *KernelSU Manager APK Build*"
+          else
+            echo "::warning::No manager APK found - build-manager result was '${{ needs.build-manager.result }}'"
+          fi
+
+          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
+            curl -sX POST -F document=@"${ZIP_FILE}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              -F "caption=📦 *${{ env.KERNEL_NAME }} Kernel Zip Build*"
           fi

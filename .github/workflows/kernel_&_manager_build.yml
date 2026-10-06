@@ -25,6 +25,7 @@ on:
           - clang-r563880
           - clang-r563880c
           - clang-r574158
+          - clang-r596125
           - clang-stable
 
       kernel_source:
@@ -93,6 +94,9 @@ jobs:
       contents: read
       actions: read
       checks: read
+    outputs:
+      kernel_ver: ${{ steps.stats.outputs.kernel_ver }}
+      duration: ${{ steps.stats.outputs.duration }}
 
     steps:
       - name: Checkout Repository
@@ -170,26 +174,46 @@ jobs:
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${START_MSG}"
 
+      - name: Cache Clang Toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: toolchains/${{ inputs.clang_version }}
+          key: clang-${{ inputs.clang_version }}
+
       - name: Download AOSP Clang
+        if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           mkdir -p toolchains/${{ inputs.clang_version }}
           cd toolchains
           if [[ "${{ inputs.clang_version }}" == "clang-r416183b" ]]; then
             git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git ${{ inputs.clang_version }}
+          elif [[ "${{ inputs.clang_version }}" == "clang-r596125" ]]; then
+            curl -fLO --retry 8 --retry-delay 20 --retry-all-errors --connect-timeout 30 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel/${{ inputs.clang_version }}.tar.gz
+            tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
+            rm -f "${{ inputs.clang_version }}.tar.gz"
           else
             OLD_TAGS=("clang-r450784e" "clang-r475365b" "clang-r487747c" "clang-r498229b" "clang-r510928")
             if [[ " ${OLD_TAGS[@]} " =~ " ${{ inputs.clang_version }} " ]]; then
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ inputs.clang_version }}.tar.gz
+              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ inputs.clang_version }}.tar.gz
             else
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ inputs.clang_version }}.tar.gz
+              curl -fLO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ inputs.clang_version }}.tar.gz
             fi
             tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
+            rm -f "${{ inputs.clang_version }}.tar.gz"
+          fi
+          cd ..
+
+          if [ ! -x "toolchains/${{ inputs.clang_version }}/bin/clang" ]; then
+            echo "::error::clang binary missing after fetching ${{ inputs.clang_version }} — download or extraction failed."
+            exit 1
           fi
 
       - name: Compile Kernel
         run: |
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
           export PATH="/usr/lib/ccache:${CLANG_ROOT}:$PATH"
+          export CCACHE_COMPILERCHECK="string:${{ inputs.clang_version }}"
           export CC="ccache ${CLANG_ROOT}/clang"
           export CXX="ccache ${CLANG_ROOT}/clang++"
           export HOSTCC="ccache ${CLANG_ROOT}/clang"
@@ -295,61 +319,13 @@ jobs:
           name: kernel-zip
           path: "*.zip"
 
-      - name: Download compiled Manager APK
-        if: ${{ inputs.ksu_type == 'KernelSU' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: manager
-          path: manager_out/
-        continue-on-error: true
-
-      - name: Send Build Files and Summary via Telegram
+      - name: Record Build Stats
+        id: stats
         run: |
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - BUILD_START))
-          MINS=$((DURATION / 60))
-          SECS=$((DURATION % 60))
-          
-          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
-          FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
-          APK_FILE=$(find manager_out/ -type f -name "*.apk" 2>/dev/null | head -n 1)
-          
-          if [ -n "$APK_FILE" ] && [ -f "$APK_FILE" ]; then
-            curl -sX POST -F document=@"${APK_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=📦 *Manager APK*"
-          fi
-
-          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
-            curl -sX POST -F document=@"${ZIP_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=⚡ *Kernel Flashable Zip*"
-          fi
-
-          K_NAME_UPPER=$(echo "${{ inputs.kernel_name }}" | sed 's/./& /g' | tr '[:lower:]' '[:upper:]')
-
-          SUCCESS_MSG="=============================
-            ${K_NAME_UPPER}  -  K E R N E L
-          =============================
-
-          *Developer*: @Justus26🪖
-          *Device*: \`${{ inputs.device_codename }}\`
-          *Linux Ver*: \`${{ env.KERNEL_VER }}\`
-          *Compiler*: \`${{ inputs.clang_version }}\`
-          *Root*: \`${{ inputs.ksu_type }}\`
-          *Size*: \`${FILE_SIZE}\`
-          *Duration*: \`${MINS}m ${SECS}s\`
-          *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`"
-
-          curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            -d "disable_web_page_preview=true" \
-            --data-urlencode "text=${SUCCESS_MSG}"
+          echo "duration=$((DURATION / 60))m $((DURATION % 60))s" >> $GITHUB_OUTPUT
+          echo "kernel_ver=${KERNEL_VER}" >> $GITHUB_OUTPUT
 
       - name: Send Build Failure Message & Logs
         if: failure()
@@ -384,3 +360,73 @@ jobs:
               -d "disable_web_page_preview=true" \
               --data-urlencode "text=${FAIL_MSG}"
           fi
+
+  Dispatch:
+    needs:
+      - build-manager
+      - Kernel_CI
+    if: ${{ !cancelled() && needs.Kernel_CI.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - name: Download Kernel ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-zip
+          path: kernel_out/
+
+      - name: Download Manager Artifact
+        if: ${{ inputs.ksu_type == 'KernelSU' && needs.build-manager.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: manager
+          path: manager_out/
+
+      - name: Send Build Files and Summary via Telegram
+        run: |
+          ZIP_FILE=$(find kernel_out -name "*.zip" | head -n 1)
+          FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
+          APK_FILE=$(find manager_out -type f -name "*.apk" 2>/dev/null | head -n 1)
+          
+          if [ -n "$APK_FILE" ] && [ -f "$APK_FILE" ]; then
+            curl -sX POST -F document=@"${APK_FILE}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              -F "caption=📦 *Manager APK*"
+          fi
+
+          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
+            curl -sX POST -F document=@"${ZIP_FILE}" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              -F "caption=⚡ *Kernel Flashable Zip*"
+          fi
+
+          K_NAME_UPPER=$(echo "${{ inputs.kernel_name }}" | sed 's/./& /g' | tr '[:lower:]' '[:upper:]')
+
+          SUCCESS_MSG="=============================
+            ${K_NAME_UPPER}  -  K E R N E L
+          =============================
+
+          *Developer*: @Justus26🪖
+          *Device*: \`${{ inputs.device_codename }}\`
+          *Linux Ver*: \`${{ needs.Kernel_CI.outputs.kernel_ver }}\`
+          *Compiler*: \`${{ inputs.clang_version }}\`
+          *Root*: \`${{ inputs.ksu_type }}\`
+          *Size*: \`${FILE_SIZE}\`
+          *Duration*: \`${{ needs.Kernel_CI.outputs.duration }}\`
+          *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`"
+
+          curl -sX POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "parse_mode=Markdown" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${SUCCESS_MSG}"

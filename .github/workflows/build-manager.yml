@@ -132,6 +132,30 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Apply Manager Version
+        run: |
+          VERSION=$(grep -E 'CFLAGS_ksu\.o' ../kernel/Makefile | grep -oE 'KSU_VERSION[[:space:]]*=[[:space:]]*[0-9]+' | head -n 1 | grep -oE '[0-9]+$' || true)
+
+          
+          if [ -z "$VERSION" ]; then
+            echo "No numeric KSU_VERSION in Makefile - keeping the default gradle version"
+            exit 0
+          fi
+
+          
+          GRADLE_FILE=$(grep -rlE 'extra\["managerVersionCode"\]' --include='*.kts' . | head -n 1 || true)
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "::warning::managerVersionCode not found - keeping the default gradle version"
+            exit 0
+          fi
+
+          sed -i -E "s|(extra\[\"managerVersionCode\"\][[:space:]]*=[[:space:]]*).*|\1${VERSION}|" "$GRADLE_FILE"
+          if grep -qE "extra\[\"managerVersionCode\"\][[:space:]]*=[[:space:]]*${VERSION}\$" "$GRADLE_FILE"; then
+            echo "Manager versionCode set to ${VERSION}"
+          else
+            echo "::warning::Patch did not apply - keeping the default gradle version"
+          fi
+
       - name: Set Custom Base Version Tag
         run: |
           git config user.name "Justus"

@@ -175,7 +175,15 @@ jobs:
             -d "disable_web_page_preview=true" \
             --data-urlencode "text=${START_MSG}"
 
+      - name: Cache Clang Toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: toolchains/${{ inputs.clang_version }}
+          key: clang-${{ inputs.clang_version }}
+
       - name: Download AOSP Clang
+        if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           mkdir -p toolchains/${{ inputs.clang_version }}
           cd toolchains
@@ -231,6 +239,7 @@ jobs:
         run: |
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
           export PATH="/usr/lib/ccache:${CLANG_ROOT}:$PATH"
+          export CCACHE_COMPILERCHECK="string:${{ inputs.clang_version }}"
           export CC="ccache ${CLANG_ROOT}/clang"
           export CXX="ccache ${CLANG_ROOT}/clang++"
           export HOSTCC="ccache ${CLANG_ROOT}/clang"
