@@ -143,17 +143,18 @@ jobs:
           fi
 
           
-          GRADLE_FILE=$(grep -rlE 'extra\["managerVersionCode"\]' --include='*.kts' . | head -n 1 || true)
+          GRADLE_FILE=$(grep -rlE 'extra\["managerVersionCode"\][[:space:]]*=' --include='*.kts' . | head -n 1 || true)
           if [ -z "$GRADLE_FILE" ]; then
             echo "::warning::managerVersionCode not found - keeping the default gradle version"
             exit 0
           fi
 
           sed -i -E "s|(extra\[\"managerVersionCode\"\][[:space:]]*=[[:space:]]*).*|\1${VERSION}|" "$GRADLE_FILE"
-          if grep -qE "extra\[\"managerVersionCode\"\][[:space:]]*=[[:space:]]*${VERSION}\$" "$GRADLE_FILE"; then
+          if grep -qE "extra\[\"managerVersionCode\"\][[:space:]]*=[[:space:]]*${VERSION}([^0-9]|\$)" "$GRADLE_FILE"; then
             echo "Manager versionCode set to ${VERSION}"
           else
             echo "::warning::Patch did not apply - keeping the default gradle version"
+            grep -rn "managerVersionCode" --include='*.kts' . || true
           fi
 
       - name: Set Custom Base Version Tag
