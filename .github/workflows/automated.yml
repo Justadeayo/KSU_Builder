@@ -311,3 +311,16 @@ jobs:
               -F "parse_mode=Markdown" \
               -F "caption=📦 *${{ env.KERNEL_NAME }} Kernel Zip Build*"
           fi
+
+  Cache_Cleanup:
+    needs: Kernel_CI
+    if: ${{ needs.Kernel_CI.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Prune old ccache entries
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" --key "ccache-kernel-${{ env.DEVICE_CODENAME }}" --sort created_at --order desc --limit 100 --json id | jq -r '.[1:][].id' | xargs -r -I{} gh cache delete {} --repo "$GITHUB_REPOSITORY" || true
