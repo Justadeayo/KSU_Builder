@@ -19,7 +19,7 @@ jobs:
       actions: write 
     steps:
       - name: Checkout target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Justadeayo/KernelSU
           token: ${{ secrets.SYNC_PAT }}

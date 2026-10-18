@@ -78,7 +78,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout KernelSU Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: 'Justadeayo/KernelSU'
           ref: 'master'
@@ -110,7 +110,7 @@ jobs:
           cargo build --package ksud --target=${{ matrix.target }} --release
 
       - name: Upload ksud artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ksud-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/ksud
@@ -125,7 +125,7 @@ jobs:
 
     steps:
       - name: Checkout KernelSU Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: 'Justadeayo/KernelSU'
           ref: 'master'
@@ -189,13 +189,13 @@ jobs:
           } >> gradle.properties
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Patch Repositories to Justadeayo
         run: |
@@ -211,13 +211,13 @@ jobs:
 
       - name: Upload build artifact
         if: ${{ github.event_name != 'pull_request' || github.ref_type == 'tag' || github.event_name == 'workflow_call' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manager-gradle
           path: manager/app/build/outputs/apk/release/*.apk
 
       - name: Upload mappings
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: ${{ github.event_name != 'pull_request' || github.ref_type == 'tag' || github.event_name == 'workflow_call' }}
         with:
           name: "mappings"
@@ -230,7 +230,7 @@ jobs:
 
     steps:
       - name: Checkout KernelSU Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: 'Justadeayo/KernelSU'
           ref: 'master'
@@ -253,26 +253,26 @@ jobs:
           fi
 
       - name: Download gradle manager artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: manager-gradle
           path: artifacts/manager-gradle
 
       - name: Download arm64 ksud
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ksud-aarch64-linux-android
           path: artifacts/ksud-aarch64-linux-android
 
       - name: Download arm ksud
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: ksud-armv7-linux-androideabi
           path: artifacts/ksud-armv7-linux-androideabi
 
       - name: Download x86_64 ksud
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ksud-x86_64-linux-android
           path: artifacts/ksud-x86_64-linux-android
@@ -326,7 +326,7 @@ jobs:
 
       - name: Upload build artifact
         if: ${{ github.event_name != 'pull_request' || github.ref_type == 'tag' || github.event_name == 'workflow_call' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manager
           path: dist/*.apk

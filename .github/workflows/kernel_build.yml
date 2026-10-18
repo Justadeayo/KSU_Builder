@@ -96,7 +96,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -332,13 +332,13 @@ jobs:
           done
 
       - name: Upload Raw Kernel Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kernel-raw-outputs
           path: raw-outputs/*
 
       - name: Upload Kernel ZIP Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kernel-zip
           path: "*.zip"

@@ -36,7 +36,7 @@ jobs:
       checks: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -222,7 +222,7 @@ jobs:
           echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
       - name: Upload Kernel ZIP Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kernel-zip
           path: "*.zip"
@@ -277,14 +277,14 @@ jobs:
 
     steps:
       - name: Download Kernel ZIP
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: kernel-zip
           path: kernel_out/
 
       - name: Download Manager Artifact
         if: ${{ needs.build-manager.result == 'success' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: manager
           path: manager_apk/
