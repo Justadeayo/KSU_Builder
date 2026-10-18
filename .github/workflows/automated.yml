@@ -17,7 +17,7 @@ env:
   DEFCONFIG_NAME: "vendor/violet-perf_defconfig"
   DEVICE_CODENAME: "violet"
   BUILD_COMMIT: "Synced with upstream changes 💯"
-  KERNEL_NAME: "Xcalibur"
+  KERNEL_NAME: "XCalibur-XF"
 
 jobs:
   build-manager:

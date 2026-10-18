@@ -7,7 +7,7 @@ on:
         description: Kernel Name
         required: true
         type: string
-        default: "XCalibur"
+        default: "XCalibur-XF"
 
       clang_version:
         description: Type the clang version of ur kernel

@@ -21,11 +21,11 @@ If you fork or adapt this repository for your own kernel/device, **you must repl
 | `.github/workflows/automated.yml` | `https://github.com/Justadeayo/android_kernel_xiaomi_violet` | Default kernel repo URL for your device |
 | `.github/workflows/automated.yml` | `17` (`KERNEL_BRANCH`) / `vendor/violet-perf_defconfig` | Your kernel branch & defconfig path |
 | `.github/workflows/automated.yml` | `Justadeayo/KernelSU` & `Justadeayo/AnyKernel3` | Your KernelSU fork & AnyKernel3 repository |
-| `.github/workflows/release.yml` | `v3.3.0-` tag prefix, git user name / email | Your tag prefix and git identity |
+| `.github/workflows/release.yml` | `v3.3.1-` tag prefix, git user name / email | Your tag prefix and git identity |
 | `.github/workflows/kernel.yml` & `kernel_build.yml` | `Justadeayo/KernelSU`, `Justadeayo/sKernelSU`, `Justadeayo/AnyKernel3` | Your KernelSU / ReSukiSU forks & AnyKernel3 repository |
 | `.github/workflows/sync.yml` | `gh workflow run release.yml -R Justadeayo/KernelSU` | Replace `Justadeayo/KernelSU` with your repo |
 | `.github/workflows/build-manager.yml` | `repository: 'Justadeayo/KernelSU'` (all checkouts) | Replace with your KernelSU repository |
-| `.github/workflows/build-manager.yml` | Repository patch `backslashxx/KernelSU` → `Justadeayo/KSU_Builder`, and the `v3.3.0` base tag | Update patch strings and base tag to match your repo |
+| `.github/workflows/build-manager.yml` | Repository patch `backslashxx/KernelSU` → `Justadeayo/KSU_Builder`, and the `v3.3.1` base tag | Update patch strings and base tag to match your repo |
 | `.github/workflows/sync.yml` | `repository: Justadeayo/KernelSU`, `Justadeayo/KSU_Builder` | Replace repository names and `--ref dev` with your setup |
 
 ---
@@ -51,7 +51,7 @@ Builds the KernelSU Manager APK and compiles native `ksud` binaries for ARM64 (`
   * Dynamic PR keystore generation vs. standard dummy release keystore.
   * Native Rust target compilation with Android NDK r29.
   * Automatic repacking of APK with compiled native binaries via `repack_apk.py`.
-  * **Manager version** (`Apply Manager Version` step): the version name stays `v3.3.0` (base tag). The version code is set to the exact `KSU_VERSION` number from the `CFLAGS_ksu.o` line of the fork's `kernel/Makefile`; if that is not a plain number, the default Gradle version is kept.
+  * **Manager version** (`Apply Manager Version` step): the version name stays `v3.3.1` (base tag). The version code is set to the exact `KSU_VERSION` number from the `CFLAGS_ksu.o` line of the fork's `kernel/Makefile`; if that is not a plain number, the default Gradle version is kept.
 * **Outputs:**
   * `manager` — Final repacked and signed Manager APK.
   * `manager-gradle` — Intermediate Gradle APK.
@@ -170,7 +170,7 @@ Orchestrates production and pre-release publications whenever a version tag (e.g
 
 * **Behavior:**
   1. `build` job calls `automated.yml` to compile kernel ZIPs and Manager APKs. The Manager version is resolved inside `build-manager.yml` (exact Makefile `KSU_VERSION`, else the default Gradle version).
-  2. Calculates incremental build version tags if run manually (e.g., `v3.3.0-<number>`).
+  2. Calculates incremental build version tags if run manually (e.g., `v3.3.1-<number>`).
   3. Evaluates release configuration: defaults to full release on `v*` tag pushes, and defaults safely to pre-release for external programmatic calls.
   4. Publishes an official GitHub Release attached with all `.apk` and `.zip` artifacts.
   5. No Telegram success message is sent by this workflow; build files are delivered by the `Dispatch` job of `automated.yml`.
@@ -211,8 +211,8 @@ Syncs the core KernelSU repository daily with upstream (`backslashxx/KernelSU`),
 
 ### Scenario C: Create an Official Release Tag
 ```bash
-git tag v3.3.0
-git push origin v3.3.0
+git tag v3.3.1
+git push origin v3.3.1
 ```
  * release.yml will automatically build the full stack and publish a release.
  
@@ -473,6 +473,7 @@ For more information, see `LICENSE` in the repository root.
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **2.2** | 2026-10-18 | Base release tag and version references bumped from `v3.3.0` to `v3.3.1` across `release.yml`, `build-manager.yml` and README | `dev` |
 | **2.1** | 2026-10-06 | Shared Clang cache and ccache compiler check across all kernel workflows; moved Telegram delivery of `automated.yml` and `Kernel_&_Manager_build.yml` into a `Dispatch` job so the Manager APK is always attached; `release.yml` no longer sends a Telegram success message and `build-manager.yml` now sets the Manager version code from the fork's Makefile `KSU_VERSION` (else the default Gradle version) with version name `v3.3.0`; added `clang-r596125` to `Kernel_&_Manager_build.yml`; README synced with all workflows | `dev` |
 | **2.0** | 2026-09-19 | Refactored `kernel_build.yml` to be a dynamic version of `kernel.yml` in terms of KSU_REPO branch, updated build manager workflow steps to match upstream | `dev` |
 | **1.9** | 2026-09-13 | Updated `sync.yml` to daily cron schedule; renamed `release.yml` job from `Full-Release` to `build`; refactored prerelease logic to default external calls to prerelease | `dev` |

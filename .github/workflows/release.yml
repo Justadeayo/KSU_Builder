@@ -43,7 +43,7 @@ jobs:
             OFFSET=3
             RUN_NUM=${{ github.run_number }}
             TAG_BUILD=$((OFFSET + RUN_NUM))
-            VERSION_TAG="v3.3.0-${TAG_BUILD}"
+            VERSION_TAG="v3.3.1-${TAG_BUILD}"
             
             git config user.name "Justus"
             git config user.email "Justadeayo@users.noreply.github.com"
@@ -92,7 +92,9 @@ jobs:
           body: |
             * Synced with Upstream Changes.
             * Latest patch included
-            * Updated Kernel Zip: ${{ env.ZIP_URL }}
+            **Kernel:** XCaliburXF-6.0
+            **KernelSU:** v3.3.1+
+            **Kernel Zip:** ${{ env.ZIP_URL }}
             
             ~by Justus26🎖️
           files: |
