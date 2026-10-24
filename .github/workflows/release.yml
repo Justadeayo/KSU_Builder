@@ -90,6 +90,7 @@ jobs:
           name: Release ${{ env.TAG_NAME }}
           generate_release_notes: false
           body: |
+            * Compatible with ANDRIOD 17 for DerpFest.
             * Synced with Upstream Changes.
             * Latest patch included
             **Kernel:** XCaliburXF-6.0
