@@ -27,7 +27,7 @@ on:
           - clang-r563880c
           - clang-r574158
           - clang-stable
-        default: "clang-r416183b"
+        default: "clang-r596125"
 
       kernel_source:
         description: Kernel Source Repo URL

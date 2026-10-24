@@ -27,7 +27,7 @@ on:
           - clang-r563880c
           - clang-r574158
           - clang-stable
-        default: "clang-r416183b"
+        default: "clang-r596125"
 
       kernel_source:
         description: Kernel Source Repo URL
@@ -140,9 +140,7 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
 
-          if [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
-            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git KSU_REPO
-          else
+          if [[ "${{ inputs.ksu_type }}" != "None"* ]]; then
             git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
           fi
 
@@ -212,7 +210,7 @@ jobs:
             sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
             bash setup.sh master
           elif [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
-            curl -LSs "https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
+            curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/RKSU/kernel/setup.sh" > setup.sh
             bash setup.sh master
           fi
 

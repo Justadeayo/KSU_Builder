@@ -14,7 +14,7 @@ env:
   CLANG_VERSION: "clang-r596125"
   KERNEL_SOURCE: "https://github.com/Justadeayo/android_kernel_xiaomi_violet"
   KERNEL_BRANCH: "17"
-  DEFCONFIG_NAME: "vendor/violet-perf_defconfig"
+  DEFCONFIG_NAME: "vendor/xcalibur-perf_defconfig"
   DEVICE_CODENAME: "violet"
   BUILD_COMMIT: "Synced with upstream changes 💯"
   KERNEL_NAME: "XCalibur-XF"
