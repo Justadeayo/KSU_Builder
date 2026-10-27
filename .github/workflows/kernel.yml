@@ -139,18 +139,6 @@ jobs:
       - name: Prepare Metadata
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
-
-          if [[ "${{ inputs.ksu_type }}" != "None"* ]]; then
-            git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
-          fi
-
-          cd KSU_REPO
-          KSU_LOG=$(git log -1 --format="%s" | tr -d '"\n')
-          KSU_HASH=$(git rev-parse --short HEAD)
-          cd ..
-
-          echo "LAST_KSU_COMMIT=${KSU_LOG}" >> $GITHUB_ENV
-          echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ inputs.BUILD_COMMIT }}" >> $GITHUB_ENV
 
       - name: Send Build Start Message
@@ -205,12 +193,13 @@ jobs:
           cd kernel
           DEFCONFIG="arch/arm64/configs/${{ inputs.defconfig_name }}"
 
-          if [[ "${{ inputs.ksu_type }}" == "KernelSU"* ]]; then
+          if [[ "${{ inputs.ksu_type }}" == "KernelSU with SUSFS"* ]]; then
+            curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/SUSFS/kernel/setup.sh" > setup.sh
+            sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
+            bash setup.sh SUSFS
+          elif [[ "${{ inputs.ksu_type }}" == "KernelSU"* ]]; then
             curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
             sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-            bash setup.sh master
-          elif [[ "${{ inputs.ksu_type }}" == "KernelSU with SUSFS"* ]]; then
-            curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/SUSFS/kernel/setup.sh" > setup.sh
             bash setup.sh master
           fi
 
