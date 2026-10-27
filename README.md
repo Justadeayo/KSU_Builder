@@ -22,7 +22,7 @@ If you fork or adapt this repository for your own kernel/device, **you must repl
 | `.github/workflows/automated.yml` | `17` (`KERNEL_BRANCH`) / `vendor/violet-perf_defconfig` | Your kernel branch & defconfig path |
 | `.github/workflows/automated.yml` | `Justadeayo/KernelSU` & `Justadeayo/AnyKernel3` | Your KernelSU fork & AnyKernel3 repository |
 | `.github/workflows/release.yml` | `v3.3.1-` tag prefix, git user name / email | Your tag prefix and git identity |
-| `.github/workflows/kernel.yml` & `kernel_build.yml` | `Justadeayo/KernelSU`, `Justadeayo/sKernelSU`, `Justadeayo/AnyKernel3` | Your KernelSU / ReSukiSU forks & AnyKernel3 repository |
+| `.github/workflows/kernel.yml` & `kernel_build.yml` | `Justadeayo/KernelSU`, `Justadeayo/AnyKernel3` | Your KernelSU / Root Manager forks & AnyKernel3 repository |
 | `.github/workflows/sync.yml` | `gh workflow run release.yml -R Justadeayo/KernelSU` | Replace `Justadeayo/KernelSU` with your repo |
 | `.github/workflows/build-manager.yml` | `repository: 'Justadeayo/KernelSU'` (all checkouts) | Replace with your KernelSU repository |
 | `.github/workflows/build-manager.yml` | Repository patch `backslashxx/KernelSU` → `Justadeayo/KSU_Builder`, and the `v3.3.1` base tag | Update patch strings and base tag to match your repo |
@@ -89,8 +89,8 @@ Interactive, manually triggered workflow allowing users to pass arbitrary kernel
 
 | Input Field | Type | Options / Description | Default |
 | :--- | :--- | :--- | :--- |
-| `kernel_name` | String | Name of the kernel for build banners | `XCalibur` |
-| `clang_version` | Choice | `clang-r416183b`, `clang-3289846` through `clang-r574158`, `clang-r596125`, `clang-stable` | First option (`clang-r416183b`) |
+| `kernel_name` | String | Name of the kernel for build banners | `XCalibur-XF` |
+| `clang_version` | Choice | `clang-r416183b`, `clang-3289846` through `clang-r574158`, `clang-r596125`, `clang-stable` | First option (`clang-r596125`) |
 | `kernel_source` | String | Target Git repository URL | `https://github.com/` |
 | `kernel_branch` | String | Target branch | *None (Required)* |
 | `defconfig_name` | String | Relative defconfig path | *None (Required)* |
@@ -121,13 +121,13 @@ Main standalone, manually triggered workflow designed to build the kernel image 
 
 | Input Field | Type | Options / Description | Default |
 | :--- | :--- | :--- | :--- |
-| `kernel_name` | String | Name of the kernel for build banners and zip name | `XCalibur` |
-| `clang_version` | Choice | `clang-r596125`, `clang-r416183b` through `clang-r574158`, `clang-stable` | `clang-r416183b` |
+| `kernel_name` | String | Name of the kernel for build banners and zip name | `XCalibur-XF` |
+| `clang_version` | Choice | `clang-r596125`, `clang-r416183b` through `clang-r574158`, `clang-stable` | `clang-r596125` |
 | `kernel_source` | String | Target Git repository URL | `https://github.com/` |
 | `kernel_branch` | String | Target branch | *None (Required)* |
 | `defconfig_name` | String | Relative defconfig path | *None (Required)* |
 | `device_codename` | String | Codename for AnyKernel3 branding | `violet` |
-| `ksu_type` | Choice | `None`, `KernelSU`, `ReSukiSU` | `KernelSU` |
+| `ksu_type` | Choice | `None`, `KernelSU`, `KernelSU with SUSFS` | `KernelSU` |
 | `BUILD_COMMIT` | String | Build notes/description | `Synced with upstream changes 💯` |
 | `telegram_chat_id` | String | Optional chat ID override | Secret fallback |
 | `telegram_bot_token` | String | Optional bot token override | Secret fallback |
@@ -146,8 +146,7 @@ Secondary standalone kernel build workflow for additional testing setups or isol
 * **Triggers:**
   * Manual dispatch (`workflow_dispatch`)
 * **Differences from `kernel.yml`:**
-  * Extra `branch` input (default `master`) selects the branch of the KernelSU / sKernelSU repository used for metadata and `setup.sh`.
-  * `ReSukiSU` builds also append `CONFIG_KSU_SUSFS=y` to the defconfig.
+  * Extra `branch` input (default `master`) selects the branch of the KernelSU repository used for metadata and `setup.sh`.
   * Uploads an extra `kernel-raw-outputs` artifact (`Image`, `Image.gz`, `dtb`, `dtbo.img`, ...) next to `kernel-zip`.
   * Uses the same shared Clang cache and ccache compiler check as the other kernel workflows.
 * **Key Features:**
@@ -467,27 +466,6 @@ By using these workflows, you acknowledge:
 - ✅ You have read and accepted the `LICENSE`
 For more information, see `LICENSE` in the repository root.
 ---
----
----
-## 📑 Version History
-
-| Version | Date | Notes | Branch |
-| :--- | :--- | :--- | :--- |
-| **2.2** | 2026-10-18 | Base release tag and version references bumped from `v3.3.0` to `v3.3.1` across `release.yml`, `build-manager.yml` and README | `dev` |
-| **2.1** | 2026-10-06 | Shared Clang cache and ccache compiler check across all kernel workflows; moved Telegram delivery of `automated.yml` and `Kernel_&_Manager_build.yml` into a `Dispatch` job so the Manager APK is always attached; `release.yml` no longer sends a Telegram success message and `build-manager.yml` now sets the Manager version code from the fork's Makefile `KSU_VERSION` (else the default Gradle version) with version name `v3.3.0`; added `clang-r596125` to `Kernel_&_Manager_build.yml`; README synced with all workflows | `dev` |
-| **2.0** | 2026-09-19 | Refactored `kernel_build.yml` to be a dynamic version of `kernel.yml` in terms of KSU_REPO branch, updated build manager workflow steps to match upstream | `dev` |
-| **1.9** | 2026-09-13 | Updated `sync.yml` to daily cron schedule; renamed `release.yml` job from `Full-Release` to `build`; refactored prerelease logic to default external calls to prerelease | `dev` |
-| **1.8** | 2026-09-11 | Stripped out SUSFS patch URL dependencies across all active kernel workflows | `dev` |
-| **1.7** | 2026-09-11 | Refactor release to be prerelease on workflow call and full release on workflow dispatch | `dev` |
-| **1.6** | 2026-09-08 | Refactor workflows to work from secondary repository, implemented the use of PAT to communicate with KernelSU Repo `(for sync.yml)`, dynamic naming of flashable zip file | `dev` |
-| **1.5** | 2026-09-07 | Updated workflow count to 7, designated `kernel.yml` as main standalone, added `kernel_build.yml` (extra), updated `Kernel_&_Manager_build.yml` with dynamic `kernel_name` and Telegram `--data-urlencode` payload fixes. | `dev` |
-| **1.4** | 2026-09-05 | Added kernel.yml for standalone kernel builds & supported `clang-r416183b` for faster build | `dev` |
-| **1.3** | 2026-09-01 | Extended parameter customization, SuSFS 4.14 patch automation, and hardcode mapping guide | `dev` |
-| **1.2** | 2026-08-19 | Automated upstream synchronization and scheduled release triggers | `dev`, `test` |
-| **1.1** | 2026-07-26 | Dynamic workflow references and interactive dispatch parameters | `dev`, `test` |
-| **1.0** | 2026-07-20 | Initial automated kernel & manager build release | `test` |
-
----
-**Last Updated:** 2026-10-06 
+**Last Updated:** 2026-10-21 
 **Primary Branches:** dev, test
 **Status:** ⚠️ Development Phase

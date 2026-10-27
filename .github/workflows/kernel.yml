@@ -58,7 +58,7 @@ on:
         options:
           - None
           - KernelSU
-          - ReSukiSU
+          - KernelSU with SUSFS
         default: KernelSU
 
       BUILD_COMMIT:
@@ -209,8 +209,8 @@ jobs:
             curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" > setup.sh
             sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
             bash setup.sh master
-          elif [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
-            curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/RKSU/kernel/setup.sh" > setup.sh
+          elif [[ "${{ inputs.ksu_type }}" == "KernelSU with SUSFS"* ]]; then
+            curl -LSs "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/SUSFS/kernel/setup.sh" > setup.sh
             bash setup.sh master
           fi
 
