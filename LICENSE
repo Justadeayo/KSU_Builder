@@ -1,153 +1,152 @@
-# KSU_Builder dev Branch License
-## Overview
-This license applies specifically to the **dev** branch of the **KSU_Builder** repository. This branch contains custom GitHub Actions workflows, build automation scripts, and documentation created for custom builds and advanced deployments. **Use with caution and at your own risk.**
----
-## Terms and Conditions
-### 1. Purpose
-The dev branch is provided as-is for:
-- Testing new build workflows and automation
-- Evaluation of build system improvements
-- Experimentation with different kernel configurations
-- Development and deployment of custom features
-### 2. Usage Restrictions
-Users of this dev branch agree to:
-- Not use in production without thorough testing and validation on your specific hardware
-- Test thoroughly before deploying any artifacts built from this branch to end-user devices
-- Report issues with clear reproduction steps and environment details
-- Verify compatibility with your specific kernel source, device, and toolchain before use
-### 3. Disclaimer of Warranty
-THIS DEV BRANCH IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO:
-- FITNESS FOR A PARTICULAR PURPOSE
-- MERCHANTABILITY
-- NON-INFRINGEMENT
-- PERFORMANCE
-- RELIABILITY
-- STABILITY
-The workflows, scripts, and documentation on this branch are experimental and may:
-- Produce broken or non-functional builds
-- Have incomplete error handling
-- Change significantly without notice 
-- Fail without clear error messages
-- Consume excessive resources
-### 4. Limitation of Liability
-In no event shall the authors, contributors, or repository maintainers be liable for:
-- Bricked devices or data loss resulting from builds created with this branch
-- Failed kernel compilations or APK builds
-- Telegram notification failures
-- Resource exhaustion or billing issues from GitHub Actions
-- Incompatibility with your kernel source or device configuration
-- Any indirect, incidental, special, consequential, or punitive damages
-### 5. Upstream Compliance
-Where applicable, this dev branch maintains compatibility with:
-- The official KernelSU project (https://github.com/tiann/KernelSU)
-- All upstream licenses and terms
-For upstream project licensing, refer to the main/master branch and the KernelSU project's original license.
-### 6. Artifact Warranties
-Artifacts built from this dev branch (kernel ZIPs, APKs, binaries) are:
-- Provided as-is and tested only as of the present date
-- Not signed with production certificates
-- Not guaranteed to be secure or free of vulnerabilities
-- Subject to change between builds without notice
-### 7. Testing Obligations
-By using this dev branch, you acknowledge:
-- You will test thoroughly before installation on any device
-- You will backup your data before flashing any builds
-- You understand risks of using custom and experimental software
-- You will not hold maintainers responsible for issues arising from use
-### 8. Feedback and Reporting
-If you use this dev branch and discover issues:
-- Report with clear reproduction steps and error logs
-- Include your device, kernel source, and toolchain information
-- Provide verbose workflow logs from GitHub Actions
-- Use respectful, constructive language
-Reported issues help improve stability, but reporting does not guarantee fixes or support.
-### 9. No Support Guarantee
-Usage of this dev branch does not guarantee:
-- Technical support or assistance
-- Bug fixes or patches
-- Response to issues or PRs
-- Maintenance or updates
-Support is provided on a best-effort basis by volunteers.
-### 10. Modifications and Distribution
-You may:
-- Fork this branch and modify workflows for personal use
-- Create PRs with improvements
-- Share experiences and feedback
-You may not:
-- Claim this branch as your own work
-- Distribute modified versions without attribution
-- Remove or alter this license
-- Misrepresent this as official production-ready software
-### 11. Branch Status
-This dev branch is considered:
-- Experimental — features and workflows may change
-- Unstable — compatibility not guaranteed
-- Unsupported — use at your own discretion and at your own risk
-- Dynamic — may be rebased, reset, or updated without notice
-### 12. Acknowledgment of Risks
-Users acknowledge understanding that:
-- Kernel compilation is complex and error-prone
-- Automated builds can fail silently
-- Telegram notifications may not indicate actual build status
-- GitHub Actions have rate limits and resource constraints
-- Build artifacts may be incomplete or corrupted
-### 13. Third-Party Software
-This branch uses and integrates with:
-- AOSP Clang (https://android.googlesource.com/platform/prebuilts/clang/)
-- KernelSU (https://github.com/Justadeayo/KernelSU)
-- AnyKernel3 (https://github.com/Justadeayo/AnyKernel3)
-- GitHub Actions (https://github.com/features/actions)
-- Other open-source tools
-Refer to upstream projects for their respective licenses and terms.
----
-## Compliance with Upstream Projects
-This dev branch builds upon and modifies workflows that interact with:
-- KernelSU kernel module (GPL)
-- AOSP/Android sources (Apache 2.0 + proprietary)
-- Third-party kernel sources
-When using this branch, you must also comply with:
-- The original KernelSU license (GPL)
-- Your kernel source's license
-- Android Open Source Project license terms
-- All applicable laws in your jurisdiction
----
-## Changes from Main Branch
-The dev branch differs from the main/master branch in that:
-- Additional custom workflows are present
-- Build automation is enhanced and customized
-- Documentation is specific to this branch
-- Some defaults may differ from upstream
-- No guarantee of upstream compatibility
----
-## Reverting to Stable
-To use stable, production-ready builds:
-- Switch to the main/master branch
-- Use official releases from KSU_Builder or KernelSU
-- Refer to upstream project documentation
-- Review the official license terms
----
-## License Version
+XCalibur-XF SUSFS Builder License
+Version 1.2, 2026-10-28
 
+Copyright (C) 2026 Justadeayo. All rights reserved.
 
-| Version | Date | Changes |
-| :--- | :--- | :--- |
-| 1.0 | 2026-07-26 | Initial dev branch license |
+This license applies to the dev branch of the KSU_Builder repository,
+which builds the XCalibur-XF kernel with SUSFS.
+Use with caution and at your own risk.
 
----
-## Contact and Questions
-For questions about this license:
-- Open an issue on the repository
-- Review the BUILD_WORKFLOWS_README.md for additional context
-- Consult the upstream KernelSU project for kernel-related questions
----
-## Final Statement
-This dev branch is provided for use with caution and at your own risk. Though tested and certified as at present date, you assume all risks and responsibilities for any outcomes, whether positive or negative. The authors and contributors make no guarantees and accept no liability.
-Use at your own discretion, and only if you understand and accept all terms outlined above.
----
-License Effective Date: 2026-07-26  
-Branch: dev  
-Status: Use with caution and at your own risk (Tested and certified as at present date)
----
-## Acknowledgments
-This branch was created for custom builds and development. We appreciate your patience, feedback, and understanding as we work to improve the build process and workflows.
-Thank you for testing and helping make KSU_Builder better.
+                         TERMS AND CONDITIONS
+
+1. Ownership
+
+   1.1 The workflows, build scripts, configuration files and
+   documentation on the dev branch that were written for this
+   repository are the property of Justadeayo. All rights are reserved
+   except as granted in this license.
+
+   1.2 Files copied or adapted from third-party projects are not owned
+   by this license. They keep their own license. Currently:
+
+       scripts/common.sh, scripts/compile.sh, scripts/env.sh,
+       scripts/ksu.sh, scripts/variant.sh, config.env,
+       .github/workflows/build.yml
+
+       Origin:  Zincore Forge by yureixen
+                https://github.com/yureixen/zincore-forge
+       License: GPL-2.0 (see LICENSE-GPL-2.0)
+
+   Each of these files carries a GPL-2.0 header comment. Where this
+   license and a file's own license differ, the file's own license
+   applies to that file.
+
+2. Permitted Use
+
+   You may:
+
+   (a) test the workflows and build automation;
+   (b) evaluate and modify them for your own kernel source, device and
+       toolchain;
+   (c) fork the branch and change the workflows for personal use; and
+   (d) open pull requests with improvements.
+
+3. Conditions
+
+   If you use or distribute this branch, you agree to:
+
+   (a) test thoroughly on your own hardware before using any build in
+       production;
+   (b) back up your data before flashing any artifact built from this
+       branch;
+   (c) verify compatibility with your kernel source, device and
+       toolchain;
+   (d) keep the credits in section 8 in any fork or redistribution; and
+   (e) keep this license text intact in any redistribution of the
+       files it covers.
+
+   You may not:
+
+   (a) claim this branch, or any part of it written for this
+       repository, as your own original work;
+   (b) remove or change the copyright notice; or
+   (c) present modified versions as official or production-ready.
+
+4. No Warranty
+
+   THE DEV BRANCH IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT,
+   PERFORMANCE, RELIABILITY AND STABILITY.
+
+   The workflows and scripts are experimental and may:
+
+   (a) produce broken or non-working builds;
+   (b) have incomplete error handling;
+   (c) fail without a clear error message;
+   (d) change without notice; or
+   (e) use a large amount of GitHub Actions resources.
+
+5. Limitation of Liability
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE OWNER AND CONTRIBUTORS
+   ARE NOT LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+   CONSEQUENTIAL OR PUNITIVE DAMAGES ARISING FROM USE OF THIS BRANCH,
+   INCLUDING:
+
+   (a) bricked devices or data loss;
+   (b) failed kernel builds or packaging;
+   (c) missed or misleading notifications (for example, Telegram);
+   (d) resource exhaustion or billing from GitHub Actions; and
+   (e) incompatibility with your kernel source or device.
+
+6. Artifacts
+
+   Artifacts built with this branch (kernel ZIPs, binaries) are:
+
+   (a) provided as-is and tested only at the time of building;
+   (b) not signed with production certificates;
+   (c) not guaranteed to be secure or free of vulnerabilities; and
+   (d) subject to change between builds.
+
+7. Third-Party Software
+
+   This branch uses or integrates with, among others:
+
+   (a) KernelSU          https://github.com/tiann/KernelSU        (GPL-2.0)
+   (b) AnyKernel3        https://github.com/osm0sis/AnyKernel3
+   (c) AOSP Clang        https://android.googlesource.com/platform/prebuilts/clang/
+   (d) GitHub Actions    https://github.com/features/actions
+
+   Each project is governed by its own license and terms. You must also
+   comply with your kernel source's license and the Android Open Source
+   Project terms where they apply.
+
+8. Credits
+
+   The following people and projects are credited. Credit is an
+   acknowledgment only. It does not transfer any license or ownership.
+
+   (a) yureixen, for Zincore Forge, the build framework that the
+       GPL-2.0 files above are based on.
+   (b) backslashxx, for the KernelSU non-GKI setup this branch builds on.
+   (c) JackA1ltman, for the SUSFS non-GKI patch set.
+   (d) simonpunk, for SUSFS.
+   (e) tiann, for KernelSU.
+   (f) osm0sis, for AnyKernel3.
+
+9. Support
+
+   Support is provided on a best-effort, volunteer basis. Reports are
+   welcome. Include your device, kernel source, toolchain and full
+   workflow logs. Reporting does not guarantee a fix.
+
+10. Stable Builds
+
+    For stable, production-oriented builds, use the main branch and
+    official releases, and review the upstream licenses.
+
+11. Version History
+
+    1.2   2026-10-28   Renamed to XCalibur-XF. Ownership in the author's
+                       name. Credits moved to a separate section.
+    1.1   2026-10-28   Restructured. Separated third-party GPL-2.0 files.
+                       Removed unverified certification statement.
+    1.0   2026-07-26   Initial dev branch license.
+
+12. Contact
+
+    Open an issue on the repository. For kernel-level questions, see the
+    upstream KernelSU project. For build details, see README.md.
+
+                              END OF TERMS

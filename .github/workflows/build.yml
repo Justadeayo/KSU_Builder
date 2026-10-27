@@ -1,0 +1,250 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Based on Zincore Forge by yureixen (https://github.com/yureixen/zincore-forge).
+# Copied and modified for Justadeayo/KSU_Builder. Licensed under GPL-2.0; see LICENSE-GPL-2.0.
+name: Build XCalibur-XF SUSFS Kernel (violet)
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create a GitHub Release after build"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [ksu, nsu]
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: builder
+
+      - name: Set up swap space
+        uses: pierotofy/set-swap-space@49819abfb41bd9b44fb781159c033dba90353a7c  # v1.0
+        with:
+          swap-size-gb: 10
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc cpio flex bison libssl-dev \
+            libelf-dev dwarves zip curl git python3 rsync jq ccache
+
+      - name: Read device config
+        id: devcfg
+        run: |
+          DEVICE_JSON="builder/devices/violet.json"
+          {
+            echo "kernel_repo=$(jq -r '.violet.kernel_repo' "$DEVICE_JSON")"
+            echo "kernel_branch=$(jq -r '.violet.kernel_branch' "$DEVICE_JSON")"
+            echo "clang_version=$(jq -r '.violet.clang_version' "$DEVICE_JSON")"
+            echo "kernel_version=$(jq -r '.violet.kernel_version' "$DEVICE_JSON")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth 1 -b "${{ steps.devcfg.outputs.kernel_branch }}" \
+            "${{ steps.devcfg.outputs.kernel_repo }}" kernel_src
+
+      - name: Cache toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: kernel_src/toolchain/clang-${{ steps.devcfg.outputs.clang_version }}
+          key: toolchain-clang-${{ steps.devcfg.outputs.clang_version }}
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d  # v1.2.24
+        with:
+          key: ccache-violet-${{ matrix.variant }}
+          max-size: 2G
+          create-symlink: false
+
+      - name: Stage builder files into kernel source
+        run: |
+          cp -r builder/devices kernel_src/
+          cp -r builder/scripts kernel_src/
+          cp builder/config.env kernel_src/
+
+      - name: Preflight — verify declared kernel version
+        working-directory: kernel_src
+        run: |
+          set -euo pipefail
+          source scripts/common.sh
+          verify_kernel_version "${{ steps.devcfg.outputs.kernel_version }}"
+
+      - name: Build (violet / ${{ matrix.variant }})
+        working-directory: kernel_src
+        run: |
+          set -euo pipefail
+          source config.env
+          source scripts/env.sh "violet"
+          bash scripts/variant.sh "violet" "${{ matrix.variant }}"
+          bash scripts/compile.sh "violet" "${{ matrix.variant }}"
+
+      - name: Package patch rejects (on failure)
+        if: failure()
+        working-directory: kernel_src
+        run: |
+          find . -path ./.xcalibur-xf_deps -prune -o -name '*.rej' -print0 > ../rejects.list
+          if [ -s ../rejects.list ]; then
+            tar -czf ../patch-rejects.tar.gz --null -T ../rejects.list
+          fi
+
+      - name: Upload patch rejects
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: xcalibur-xf-violet-${{ matrix.variant }}-rejects
+          path: patch-rejects.tar.gz
+          if-no-files-found: ignore
+
+      - name: Diagnose known build failures
+        if: failure()
+        working-directory: kernel_src
+        run: |
+          LOG="violet-${{ matrix.variant }}-build.log"
+          if [ -f "$LOG" ]; then
+            if grep -q "You disabled CONFIG_KALLSYMS_ALL" "$LOG"; then
+              echo "::error::Known issue — BakaSU static-symbol export missing/incomplete. Check ksu.sh's unstatic() block and CONFIG_KALLSYMS/CONFIG_KALLSYMS_ALL."
+            fi
+            if grep -q "static_export_check.mk" "$LOG"; then
+              echo "::error::BakaSU integration check failed — kernel not properly integrated. See https://bakasu.org/guide/manual-integrate"
+            fi
+          else
+            echo "::warning::Build log not found, cannot run diagnosis."
+          fi
+
+      - name: Upload flashable zip
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: xcalibur-xf-violet-${{ matrix.variant }}
+          path: kernel_src/xcalibur-xf-*.zip
+          if-no-files-found: error
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: debug-violet-${{ matrix.variant }}
+          path: |
+            kernel_src/*-build.log
+            kernel_src/*-config
+          if-no-files-found: warn
+
+      - name: Upload KSU version info
+        if: matrix.variant == 'ksu'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: xcalibur-xf-violet-${{ matrix.variant }}-versions
+          path: |
+            kernel_src/violet-bakasu-version.txt
+            kernel_src/violet-susfs-version.txt
+            kernel_src/violet-bakasu-managers.txt
+          if-no-files-found: error
+
+      - name: Send flashable zip to Telegram
+        if: success()
+        working-directory: kernel_src
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::notice::Telegram secrets not set, skipping."
+            exit 0
+          fi
+          ZIP=$(ls xcalibur-xf-*.zip | head -1)
+          CAPTION="*XCalibur-XF SUSFS build ✅*
+
+          *Device*: \`violet\`
+          *Variant*: \`${{ matrix.variant }}\`
+          *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${TELEGRAM_CHAT_ID}" \
+            -F "parse_mode=Markdown" \
+            --form-string "caption=${CAPTION}" \
+            -F "document=@${ZIP}"
+
+      - name: Send failure report to Telegram
+        if: failure()
+        working-directory: kernel_src
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            exit 0
+          fi
+          MSG="*XCalibur-XF build failed ❌*
+
+          *Device*: \`violet\`
+          *Variant*: \`${{ matrix.variant }}\`
+          *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f "violet-${{ matrix.variant }}-build.log" ]; then
+            tail -n 35 "violet-${{ matrix.variant }}-build.log" > ../error_preview.txt
+            zip -j ../error_logs.zip "violet-${{ matrix.variant }}-build.log" ../error_preview.txt
+            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "parse_mode=Markdown" \
+              --form-string "caption=${MSG}" \
+              -F "document=@../error_logs.zip"
+          else
+            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "parse_mode=Markdown" \
+              -d "disable_web_page_preview=true" \
+              --data-urlencode "text=${MSG}"
+          fi
+
+  release:
+    needs: build
+    if: ${{ inputs.create_release }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: xcalibur-xf-*
+          path: release_files
+
+      - name: Flatten artifact folders
+        run: |
+          mkdir -p final
+          find release_files -type f -exec mv {} final/ \;
+
+      - name: Compose release notes
+        run: |
+          {
+            echo "> [!NOTE]"
+
+            BAKASU_UNIQUE=$(cat final/*-bakasu-version.txt 2>/dev/null | sort -u)
+            SUSFS_UNIQUE=$(cat final/*-susfs-version.txt 2>/dev/null | sort -u)
+            MANAGERS_UNIQUE=$(cat final/*-bakasu-managers.txt 2>/dev/null | sort -u)
+
+            [ -n "$BAKASU_UNIQUE" ] && echo "> BakaSU Version: $(echo "$BAKASU_UNIQUE" | head -1)"
+            [ -n "$SUSFS_UNIQUE" ] && echo "> SuSFS Version: $(echo "$SUSFS_UNIQUE" | head -1)"
+            [ -n "$MANAGERS_UNIQUE" ] && echo "> Supported Managers: $(echo "$MANAGERS_UNIQUE" | head -1)"
+            echo ""
+            echo "> [!CAUTION]"
+            echo "> - Always back up your boot image (and dtbo, if your device has one) before flashing!"
+          } > release_notes.md
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          gh release create "xcalibur-xf-violet-${DATE}-${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --title "XCalibur-XF violet - ${DATE}" \
+            --notes-file release_notes.md \
+            final/*.zip

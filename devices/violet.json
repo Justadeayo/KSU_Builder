@@ -1,0 +1,18 @@
+{
+  "violet": {
+    "kernel_repo": "https://github.com/Justadeayo/android_kernel_xiaomi_violet.git",
+    "kernel_branch": "17",
+    "defconfig": "vendor/xcalibur-perf_defconfig",
+    "kernel_version": "4.14",
+    "arch": "arm64",
+    "kernel_name": "XCalibur-XF",
+
+    "clang_version": "r596125",
+    "clang_branch": "main-kernel",
+
+    "ak3_repo": "https://github.com/Justadeayo/AnyKernel3.git",
+    "ak3_branch": "master",
+
+    "variants": ["nsu", "ksu"]
+  }
+}

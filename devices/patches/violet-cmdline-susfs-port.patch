@@ -1,0 +1,28 @@
+--- a/fs/proc/cmdline.c	2026-10-27 11:41:08.254932087 +0100
++++ b/fs/proc/cmdline.c	2026-10-27 11:41:32.391988118 +0100
+@@ -4,6 +4,11 @@
+ #include <linux/proc_fs.h>
+ #include <linux/seq_file.h>
+ 
++#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
++extern struct static_key_false susfs_is_fake_cmdline_or_bootconfig_buffer_set;
++extern void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m);
++#endif
++
+ #if defined (CONFIG_INITRAMFS_IGNORE_SKIP_FLAG) \
+ 	|| defined(CONFIG_CMDLINE_HWC_IS_SKU) \
+ 	|| defined(CONFIG_CMDLINE_HWC_IS_PRODUCT_SKU)
+@@ -73,6 +78,13 @@
+ 
+ static int cmdline_proc_show(struct seq_file *m, void *v)
+ {
++#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
++	if (static_branch_likely(&susfs_is_fake_cmdline_or_bootconfig_buffer_set)) {
++		susfs_spoof_cmdline_or_bootconfig(m);
++		seq_putc(m, '\n');
++		return 0;
++	}
++#endif
+ #ifdef ALTER_CMDLINE
+ 	seq_printf(m, "%s\n", proc_command_line);
+ #else

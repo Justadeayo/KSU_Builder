@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Based on Zincore Forge by yureixen (https://github.com/yureixen/zincore-forge).
+# Copied and modified for Justadeayo/KSU_Builder. Licensed under GPL-2.0; see LICENSE-GPL-2.0.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common.sh"
+
+DEVICE="${1:?Usage: ksu.sh <device>}"
+DEVICE_JSON="devices/${DEVICE}.json"
+
+: "${KSU_REPO_URL:?KSU_REPO_URL not set — source config.env first}"
+: "${KSU_REPO_PIN:?KSU_REPO_PIN not set — source config.env first}"
+: "${SUSFS_REPO_URL:?SUSFS_REPO_URL not set — source config.env first}"
+: "${SUSFS_REPO_PIN:?SUSFS_REPO_PIN not set — source config.env first}"
+
+KERNEL_VERSION=$(read_field kernel_version)
+[ -n "$KERNEL_VERSION" ] || die "kernel_version missing in $DEVICE_JSON"
+
+# Clone + pin dependencies BEFORE executing anything from them
+WORKDIR="$(pwd)"
+KSU_SRC="${WORKDIR}/.xcalibur-xf_deps/bakasu"
+SUSFS_SRC="${WORKDIR}/.xcalibur-xf_deps/susfs"
+mkdir -p "$(dirname "$KSU_SRC")"
+
+log "Cloning BakaSU (pinned to ${KSU_REPO_PIN})"
+git init --quiet "$KSU_SRC"
+git -C "$KSU_SRC" remote add origin "$KSU_REPO_URL"
+git -C "$KSU_SRC" fetch --quiet --depth 1 origin "$KSU_REPO_PIN"
+git -C "$KSU_SRC" checkout --quiet FETCH_HEAD
+
+log "Cloning SuSFS source (JackA1ltman, pinned to ${SUSFS_REPO_PIN})"
+git init --quiet "$SUSFS_SRC"
+git -C "$SUSFS_SRC" remote add origin "$SUSFS_REPO_URL"
+git -C "$SUSFS_SRC" fetch --quiet --depth 1 origin "$SUSFS_REPO_PIN"
+git -C "$SUSFS_SRC" checkout --quiet FETCH_HEAD
+
+FRAGMENT_DIR="xcalibur-xf_fragments"
+FRAGMENT_FILE="${FRAGMENT_DIR}/kernelsu.config"
+mkdir -p "$FRAGMENT_DIR"
+: > "$FRAGMENT_FILE"
+
+log "Installing BakaSU (pinned to ${KSU_REPO_PIN})"
+bash "${KSU_SRC}/kernel/setup.sh" "$KSU_REPO_PIN"
+
+# setup.sh silently falls back to the default branch if checkout fails; make sure the pin was really used
+[ "$(git -C KernelSU rev-parse HEAD)" = "$KSU_REPO_PIN" ] || die "BakaSU is not at the pinned commit ${KSU_REPO_PIN}, setup.sh checkout probably failed"
+
+log "Applying SuSFS patch for kernel $KERNEL_VERSION"
+
+if grep -q "CONFIG_KSU_SUSFS" "fs/namespace.c" 2>/dev/null; then
+    log "SuSFS already patched in this tree, skipping patch step"
+else
+    SUSFS_PATCH_FILE="${SUSFS_SRC}/Patches/Patch/susfs_patch_to_${KERNEL_VERSION}.patch"
+
+    if [ ! -f "$SUSFS_PATCH_FILE" ]; then
+        die "$SUSFS_PATCH_FILE not found in pinned SuSFS source — check that susfs_patch_to_${KERNEL_VERSION}.patch exists at this pinned commit."
+    fi
+
+    log "Applying SuSFS patch"
+    set +e
+    patch -p1 --fuzz=3 < "$SUSFS_PATCH_FILE"
+    PATCH_RC=$?
+    set -e
+    if [ "$PATCH_RC" -gt 1 ]; then
+        die "patch exited with code $PATCH_RC — not a hunk rejection but a fatal patch error (malformed patch, unreadable target file). Check $SUSFS_PATCH_FILE."
+    fi
+    
+    # Device-specific port: violet's fs/proc/cmdline.c differs from upstream,
+    # so the cmdline spoof hunk is applied by hand from devices/patches/.
+    PORT_PATCH="devices/patches/${DEVICE}-cmdline-susfs-port.patch"
+    if [ -f fs/proc/cmdline.c.rej ] && [ -f "$PORT_PATCH" ]; then
+        log "Applying device port for fs/proc/cmdline.c ($PORT_PATCH)"
+        patch -p1 < "$PORT_PATCH" || die "device port $PORT_PATCH failed to apply"
+        rm -f fs/proc/cmdline.c.rej
+    fi
+
+    # A reject is ignored only if it is whitespace-only
+    ws_only() {
+        awk '
+            /^--- / || /^\+\+\+ / || /^@@/ { next }
+            /^-/ { s = substr($0, 2); gsub(/[[:space:]]/, "", s); m[++nm] = s; next }
+            /^\+/ { s = substr($0, 2); gsub(/[[:space:]]/, "", s); p[++np] = s; next }
+            END {
+                if (nm == 0 || nm != np) exit 1
+                for (i = 1; i <= nm; i++) if (m[i] != p[i]) exit 1
+            }' "$1"
+    }
+
+    REAL_REJ=()
+    while IFS= read -r -d '' rej; do
+        if ws_only "$rej"; then
+            log "Whitespace-only reject ignored: $rej"
+            rm -f -- "$rej"
+        else
+            REAL_REJ+=("$rej")
+        fi
+    done < <(find . -path ./.xcalibur-xf_deps -prune -o -name '*.rej' -print0 2>/dev/null)
+
+    if [ "${#REAL_REJ[@]}" -gt 0 ]; then
+        warn "SuSFS patch produced real rejected hunks:"
+        for r in "${REAL_REJ[@]}"; do warn "  $r"; done
+        die "These must be resolved manually against this kernel tree before a KSU build can be trusted."
+    fi
+    log "SuSFS patch applied cleanly (no real rejects)"
+fi
+
+# Manual hook script
+log "Applying SuSFS manual hook patches"
+bash "${SUSFS_SRC}/Patches/susfs_inline_hook_patches.sh" | tee /tmp/xcalibur-xf_susfs_hook.log
+grep -o "Current susfs patch version:[0-9.]*" /tmp/xcalibur-xf_susfs_hook.log | head -1 | sed 's/Current susfs patch version://' > "${WORKDIR}/${DEVICE}-susfs-version.txt" || true
+[ -s "${WORKDIR}/${DEVICE}-susfs-version.txt" ] || die "SuSFS hook script ran but no patch version was found in /tmp/xcalibur-xf_susfs_hook.log, the version grep may be out of date"
+
+# Core config fragment (structural — merged into out/.config by compile.sh)
+log "Patching static symbol exports required by BakaSU"
+
+UNSTATIC_APPLIED=0
+UNSTATIC_TOTAL=0
+
+unstatic() {
+    local file="$1" regex="$2"
+    UNSTATIC_TOTAL=$((UNSTATIC_TOTAL + 1))
+
+    if [ ! -f "$file" ]; then
+        warn "unstatic: $file not found in this tree — skipping '$regex' (expected if this kernel's source layout differs)"
+        return
+    fi
+
+    if grep -q "static $regex" "$file" 2>/dev/null; then
+        sed -i "s/static $regex/$regex/" "$file"
+        log "  exported: $regex ($file)"
+        UNSTATIC_APPLIED=$((UNSTATIC_APPLIED + 1))
+    else
+        warn "  not found as 'static $regex' in $file — already non-static, or this kernel tree's SELinux code differs from what this pattern expects"
+    fi
+}
+unstatic "security/selinux/selinuxfs.c" "ssize_t (\*write_op\[\])"
+unstatic "security/selinux/selinuxfs.c" "const struct file_operations sel_handle_status_ops"
+unstatic "security/selinux/selinuxfs.c" "DEFINE_MUTEX(sel_mutex);"
+unstatic "security/selinux/ss/services.c" "struct page \*selinux_status_page;"
+unstatic "security/selinux/ss/services.c" "DEFINE_MUTEX(selinux_status_lock);"
+unstatic "security/selinux/ss/services.c" "DEFINE_RWLOCK(policy_rwlock);"
+unstatic "security/selinux/hooks.c" "struct security_operations selinux_ops"
+unstatic "security/selinux/ss/services.c" "void security_dump_masked_av("
+unstatic "security/selinux/ss/services.c" "void context_struct_compute_av("
+
+log "Static-symbol export summary: ${UNSTATIC_APPLIED}/${UNSTATIC_TOTAL} applied"
+if [ "$UNSTATIC_APPLIED" -lt "$UNSTATIC_TOTAL" ]; then
+    warn "$((UNSTATIC_TOTAL - UNSTATIC_APPLIED)) pattern(s) above were NOT applied — this is expected if they're already non-static in this tree, but if this is a NEW kernel source (different repo/version than previously verified), manually confirm BakaSU actually has the symbol access it needs before trusting this build."
+fi
+
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SUS_PATH"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SUS_MOUNT"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SUS_KSTAT"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SPOOF_UNAME"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_ENABLE_LOG"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_OPEN_REDIRECT"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SUS_MAP"
+
+# THREAD_INFO_IN_TASK is conditionally required
+if grep -q "THREAD_INFO_IN_TASK" "drivers/kernelsu/Kconfig" 2>/dev/null; then
+    fragment_add "$FRAGMENT_FILE" "-e CONFIG_THREAD_INFO_IN_TASK"
+    log "THREAD_INFO_IN_TASK required by this KernelSU Kconfig, added"
+fi
+
+log "Fragment written: $FRAGMENT_FILE"
+cat "$FRAGMENT_FILE"
