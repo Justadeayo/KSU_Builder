@@ -180,6 +180,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v7
+
       - name: Prune old ccache entries
         run: |
           bash scripts/master.sh prune-ccache "ccache-kernel-${{ env.DEVICE_CODENAME }}"

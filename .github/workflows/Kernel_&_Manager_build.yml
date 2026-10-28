@@ -218,6 +218,8 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
 
     steps:
+      - uses: actions/checkout@v7
+
       - name: Download Kernel ZIP
         uses: actions/download-artifact@v8
         with:
@@ -279,6 +281,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v7
+
       - name: Prune old ccache entries
         run: |
           bash scripts/master.sh prune-ccache "ccache-kernel-${{ inputs.device_codename }}"
