@@ -120,6 +120,37 @@ fi
 # Manual hook script
 log "Applying SuSFS manual hook patches"
 bash "${SUSFS_SRC}/Patches/susfs_inline_hook_patches.sh" | tee /tmp/xcalibur-xf_susfs_hook.log
+# The SuSFS inline-hook script adds calls to three KernelSU hooks from the
+# older API that this fork does not define (sys_read, fstat, init.rc). The fork
+# defines ksu_hide_setprocattr with the same signature, so that call is kept.
+# SuSFS's own inserts are left alone.
+python3 - <<'PY'
+import pathlib, re
+NAMES = ("ksu_is_init_rc_hook_enabled", "ksu_handle_sys_read", "ksu_handle_vfs_fstat")
+BLOCK = re.compile(r"#ifdef CONFIG_KSU\n(.*?)#endif[^\n]*\n", re.S)
+removed = 0
+for path in ("fs/read_write.c", "fs/stat.c", "security/selinux/hooks.c"):
+    f = pathlib.Path(path)
+    if not f.exists():
+        continue
+    text = f.read_text()
+    def drop(m):
+        global removed
+        if any(n in m.group(1) for n in NAMES):
+            removed += 1
+            return ""
+        return m.group(0)
+    text = BLOCK.sub(drop, text)
+    lines = []
+    for line in text.splitlines(keepends=True):
+        if any(n in line for n in NAMES):
+            removed += 1
+            continue
+        lines.append(line)
+    f.write_text("".join(lines))
+print(f"Removed {removed} legacy KernelSU hook call(s) that this driver does not provide")
+PY
+
 grep -o "Current susfs patch version:[0-9.]*" /tmp/xcalibur-xf_susfs_hook.log | head -1 | sed 's/Current susfs patch version://' > "${WORKDIR}/${DEVICE}-susfs-version.txt" || true
 [ -s "${WORKDIR}/${DEVICE}-susfs-version.txt" ] || die "SuSFS hook script ran but no patch version was found in /tmp/xcalibur-xf_susfs_hook.log, the version grep may be out of date"
 
