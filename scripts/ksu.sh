@@ -121,12 +121,13 @@ fi
 log "Applying SuSFS manual hook patches"
 bash "${SUSFS_SRC}/Patches/susfs_inline_hook_patches.sh" | tee /tmp/xcalibur-xf_susfs_hook.log
 # The SuSFS inline-hook script adds calls to three KernelSU hooks from the
-# older API that this fork does not define (sys_read, fstat, init.rc). The fork
-# defines ksu_hide_setprocattr with the same signature, so that call is kept.
-# SuSFS's own inserts are left alone.
+# older API that this fork does not expose to the kernel tree (sys_read, fstat,
+# init.rc, setprocattr). The fork already hooks setprocattr through its LSM list
+# (lsm_hooks_list.c), so the call in selinux/hooks.c is redundant. SuSFS's own
+# inserts are left alone.
 python3 - <<'PY'
 import pathlib, re
-NAMES = ("ksu_is_init_rc_hook_enabled", "ksu_handle_sys_read", "ksu_handle_vfs_fstat")
+NAMES = ("ksu_is_init_rc_hook_enabled", "ksu_handle_sys_read", "ksu_handle_vfs_fstat", "ksu_hide_setprocattr")
 BLOCK = re.compile(r"#ifdef CONFIG_KSU\n(.*?)#endif[^\n]*\n", re.S)
 removed = 0
 for path in ("fs/read_write.c", "fs/stat.c", "security/selinux/hooks.c"):
@@ -203,6 +204,7 @@ fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS"
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG"
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_OPEN_REDIRECT"
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SUS_MAP"
+fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_TAMPER_SYSCALL_TABLE"
 
 # THREAD_INFO_IN_TASK is conditionally required
 if grep -q "THREAD_INFO_IN_TASK" "drivers/kernelsu/Kconfig" 2>/dev/null; then
