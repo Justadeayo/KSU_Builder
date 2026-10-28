@@ -119,7 +119,13 @@ fi
 
 # Manual hook script
 log "Applying SuSFS manual hook patches"
-bash "${SUSFS_SRC}/Patches/susfs_inline_hook_patches.sh" | tee /tmp/xcalibur-xf_susfs_hook.log
+# Run only SuSFS's own hook edits. Lines that insert KernelSU hook calls
+# (ksu_*, CONFIG_KSU) are dropped: this driver runs su grants through its
+# syscall table (CONFIG_KSU_TAMPER_SYSCALL_TABLE), so those calls are not needed
+# and would not link against it.
+FILTERED_HOOKS="${WORKDIR}/.xcalibur-xf_deps/susfs_inline_hook_patches.filtered.sh"
+sed -E '/^[[:space:]]*sed -i.*(ksu_|CONFIG_KSU\b|a\\#endif)/s/^([[:space:]]*)sed -i/\1true # skipped KernelSU hook or its #endif: sed -i/' "${SUSFS_SRC}/Patches/susfs_inline_hook_patches.sh" > "$FILTERED_HOOKS"
+bash "$FILTERED_HOOKS" | tee /tmp/xcalibur-xf_susfs_hook.log
 # The SuSFS inline-hook script adds calls to three KernelSU hooks from the
 # older API that this fork does not expose to the kernel tree (sys_read, fstat,
 # init.rc, setprocattr). The fork already hooks setprocattr through its LSM list
@@ -204,6 +210,9 @@ fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS"
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG"
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_OPEN_REDIRECT"
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_SUSFS_SUS_MAP"
+# Root grant hooks. The fork's Kconfig recommends the syscall-table tamper for
+# 3.0-4.14 kernels, and sucompat (su grant) runs through it. Without this option
+# the su grant hooks are not compiled in and root requests fail.
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU_TAMPER_SYSCALL_TABLE"
 
 # THREAD_INFO_IN_TASK is conditionally required

@@ -179,6 +179,10 @@ jobs:
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           bash scripts/master.sh clang "${{ inputs.clang_version }}" "toolchains/${{ inputs.clang_version }}"
+      - name: Setup KernelSU & Configure Defconfig
+        run: |
+          URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh"
+          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL"
       - name: Compile Kernel
         run: |
           bash scripts/master.sh compile "${{ inputs.clang_version }}" "${{ inputs.defconfig_name }}" kernel "${GITHUB_WORKSPACE}/build.log"

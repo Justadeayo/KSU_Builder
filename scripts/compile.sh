@@ -57,6 +57,11 @@ fi
 # Resolve dependencies after all fragment toggles
 make O="$OUT_DIR" ARCH="$KERNEL_ARCH" $LLVM_TOOLS olddefconfig
 
+# Without the root-grant hook, KernelSU builds boot but deny every su request.
+if [ "$VARIANT" = "ksu" ] && ! grep -q "^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" "${OUT_DIR}/.config"; then
+    die "CONFIG_KSU_TAMPER_SYSCALL_TABLE is not enabled in the final .config. Root would fail."
+fi
+
 # Save final .config as a debug artifact
 cp "${OUT_DIR}/.config" "${WORKDIR}/${DEVICE}-${VARIANT}-config"
 
