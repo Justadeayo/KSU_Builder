@@ -164,16 +164,11 @@ jobs:
           fi
           ZIP=$(ls xcalibur-xf-*.zip | head -1)
           CAPTION="*XCalibur-XF SUSFS build ✅*
-
+          
           *Device*: \`violet\`
           *Variant*: \`${{ matrix.variant }}\`
           *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-            -F "chat_id=${TELEGRAM_CHAT_ID}" \
-            -F "parse_mode=Markdown" \
-            --form-string "caption=${CAPTION}" \
-            -F "document=@${ZIP}"
-
+          bash ../builder/scripts/master.sh tg-doc "$ZIP" "$CAPTION"
       - name: Send failure report to Telegram
         if: failure()
         working-directory: kernel_src
@@ -182,26 +177,17 @@ jobs:
             exit 0
           fi
           MSG="*XCalibur-XF build failed ❌*
-
+          
           *Device*: \`violet\`
           *Variant*: \`${{ matrix.variant }}\`
           *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ -f "violet-${{ matrix.variant }}-build.log" ]; then
             tail -n 35 "violet-${{ matrix.variant }}-build.log" > ../error_preview.txt
             zip -j ../error_logs.zip "violet-${{ matrix.variant }}-build.log" ../error_preview.txt
-            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              --form-string "caption=${MSG}" \
-              -F "document=@../error_logs.zip"
+            bash ../builder/scripts/master.sh tg-doc ../error_logs.zip "$MSG"
           else
-            curl -sf -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d "chat_id=${TELEGRAM_CHAT_ID}" \
-              -d "parse_mode=Markdown" \
-              -d "disable_web_page_preview=true" \
-              --data-urlencode "text=${MSG}"
+            bash ../builder/scripts/master.sh tg-msg "$MSG"
           fi
-
   release:
     needs: build
     if: ${{ inputs.create_release }}

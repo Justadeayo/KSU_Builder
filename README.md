@@ -1,566 +1,408 @@
-# KernelSU Build Workflows Guide
+# KSU_Builder
 
-```
-Designed to compile legacy kernel ( ≥3.8 ) and support KSU manager.
-If Unsure how to go about Manager, download from this Repo and updates would be pushed OTA consistently.
-But Remember to Fork this Repo to keep your Kernel Zip build up to date.
-```
+GitHub Actions workflows for building Android kernels (with KernelSU or
+SUSFS) and the KernelSU Manager app. The current target is the Xiaomi Redmi
+Note 7 Pro (`violet`) with the XCalibur-XF kernel.
 
-> **⚠️ Important Notice:** These workflows are provided for testing, evaluation, and customization purposes. **Use with caution and at your own risk.** Always verify compatibility with your setup before building. You assume all responsibility for any outcomes.
-Make sure you're building a kernel compatible with your device tree, if not keep a backup of working kernel zip or boot.img to be on a safe page while experimenting.
-This guide details the automated GitHub Actions workflows in this repository for compiling Android custom kernels and the KernelSU Manager app.
+> **Use with caution and at your own risk.** These workflows are for testing,
+> evaluation and customization. Check compatibility with your device before
+> flashing anything. Keep a working boot image or kernel zip somewhere safe.
+> See `LICENSE` for the full terms.
+
 ---
-## 🛠️ Hardcoded References & Customization Guide
-If you fork or adapt this repository for your own kernel/device, **you must replace the following hardcoded values** across the workflow `.yml` files:
 
-| File Path | Hardcoded Field / Value | What to Replace With |
+## Contents
+
+1. [Workflows at a glance](#workflows-at-a-glance)
+2. [The master script](#the-master-script)
+3. [Workflow reference](#workflow-reference)
+4. [Build a SUSFS kernel (`build.yml`)](#build-a-susfs-kernel-buildyml)
+5. [Secrets](#secrets)
+6. [Where the outputs go](#where-the-outputs-go)
+7. [Hardcoded values to change when forking](#hardcoded-values-to-change-when-forking)
+8. [Troubleshooting](#troubleshooting)
+9. [Credits, license and version history](#credits-license-and-version-history)
+
+---
+
+## Workflows at a glance
+
+| Workflow | Trigger | Purpose | Uses master script |
+| :--- | :--- | :--- | :--- |
+| `build.yml` (Build XCalibur-XF SUSFS Kernel) | Manual | Build the violet SUSFS kernel in `ksu` and `nsu` variants, using the framework in `scripts/` and `devices/` | deps, Telegram |
+| `automated.yml` (Automated Build for Violet) | Manual, or called by `release.yml` | Fixed-target kernel and Manager build for violet, with Telegram delivery | deps, clang, Telegram, AnyKernel3 |
+| `kernel.yml` (Kernel Build (main)) | Manual | Standalone kernel build with custom source, branch, defconfig and root choice. No Manager APK | deps, clang, Telegram, AnyKernel3 |
+| `kernel_build.yml` (Kernel Build (extra)) | Manual | Same as `kernel.yml`, plus a KernelSU branch choice and a raw-outputs artifact for testing | deps, clang, Telegram, AnyKernel3 |
+| `Kernel_&_Manager_build.yml` (Kernel & Manager Build) | Manual | Full custom build: kernel plus the Manager APK, sent to Telegram together | deps, clang, Telegram, AnyKernel3 |
+| `build-manager.yml` (Build Manager) | Push to `main`, `dev`, `ci`, `test`, `staging`; called; manual | Builds the KernelSU Manager APK and the `ksud` binaries | none (self-contained) |
+| `release.yml` (Release) | Tag `v*`; manual; called | Publishes a GitHub Release from the automated build | none (calls `automated.yml`) |
+| `sync.yml` (Sync Upstream Updates) | Daily at 00:00 UTC; manual | Keeps the KernelSU fork aligned with upstream | none |
+
+"Uses master script" lists the shared steps each workflow takes from
+`scripts/master.sh`. Steps that are unique to a workflow stay in that workflow.
+
+---
+
+## The master script
+
+`scripts/master.sh` holds the steps that every build workflow used to repeat:
+installing dependencies, fetching Clang, sending Telegram messages and
+packaging the AnyKernel3 zip. Workflows call it with one line instead of
+carrying their own copy.
+
+```bash
+bash scripts/master.sh deps
+bash scripts/master.sh clang <clang-version> [dest-dir]
+bash scripts/master.sh tg-msg "<markdown text>"
+bash scripts/master.sh tg-doc <file> "<markdown caption>"
+bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
+bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url>
+bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
+bash scripts/master.sh fail-report <log-file> <device> <label> <start-epoch>
+bash scripts/master.sh prune-ccache <cache-key>
+bash scripts/master.sh help
+```
+
+| Command | What it does |
+| :--- | :--- |
+| `deps` | Removes stale apt sources, then installs the build packages (one list for every workflow). |
+| `clang` | Downloads and extracts a Clang version into `toolchains/<version>`. It tries the `main-kernel`, `android-14`, `android16-qpr2` and `main` googlesource refs in turn. `clang-r416183b` is cloned from LineageOS. Fails if `bin/clang` is missing after the download. Skips the download if Clang is already there. |
+| `tg-msg` | Sends a Markdown message to Telegram. |
+| `tg-doc` | Sends a file to Telegram with a Markdown caption. If the file is missing, it sends the caption as a message. |
+| `ksu-setup` | Runs a KernelSU or ReSukiSU `setup.sh` in the kernel tree, rewrites the fork owner to Justadeayo, and appends the root options to the defconfig (`ReSukiSU` also gets `CONFIG_KSU_SUSFS=y`). `None` does nothing. The caller gives the `setup.sh` URL, so each workflow still chooses its own fork and branch. |
+| `compile` | Exports the Clang and ccache environment, runs `make` and `olddefconfig`, and builds with the log written to the given file. With `REQUIRE_KSU_TAMPER=true` it fails when the final `.config` lost `CONFIG_KSU_TAMPER_SYSCALL_TABLE`. |
+| `fail-report` | Sends the failure message with the last 35 log lines zipped. Falls back to a plain message when there is no log. Duration comes from the start epoch. |
+| `prune-ccache` | Deletes all but the newest ccache entry for a key. |
+| `anykernel` | Copies the kernel image and DTB files from `boot-dir` into an AnyKernel3 folder, fills in the device, Clang version and build date, and zips the result. Prints the zip name on stdout. The `label` sets the zip name. `None`, `NoKSU` and `nsu` turn off `ksu_supported`. Any other label turns it on. |
+
+**Environment**
+
+| Variable | Used by | Default |
 | :--- | :--- | :--- |
-| `.github/workflows/Kernel_&_Manager_build.yml` | `Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev` (job call) | `<your-github-username>/<your-repo-name>` and your branch |
-| `.github/workflows/Kernel_&_Manager_build.yml` | `Justadeayo/KernelSU`, `Justadeayo/AnyKernel3` (clone / setup URLs) | Your KernelSU fork & AnyKernel3 repository |
-| `.github/workflows/automated.yml` | `Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev` (job call) | `<your-github-username>/<your-repo-name>` and your branch |
-| `.github/workflows/automated.yml` | `https://github.com/Justadeayo/android_kernel_xiaomi_violet` | Default kernel repo URL for your device |
-| `.github/workflows/automated.yml` | `17` (`KERNEL_BRANCH`) / `vendor/xcalibur-perf_defconfig` | Your kernel branch & defconfig path |
-| `.github/workflows/automated.yml` | `Justadeayo/KernelSU` & `Justadeayo/AnyKernel3` | Your KernelSU fork & AnyKernel3 repository |
-| `.github/workflows/release.yml` | `v3.3.1-` tag prefix, git user name / email | Your tag prefix and git identity |
-| `.github/workflows/kernel.yml` & `kernel_build.yml` | `Justadeayo/KernelSU`, `Justadeayo/sKernelSU`, `Justadeayo/AnyKernel3` | Your KernelSU / ReSukiSU forks & AnyKernel3 repository |
-| `.github/workflows/sync.yml` | `gh workflow run release.yml -R Justadeayo/KernelSU` | Replace `Justadeayo/KernelSU` with your repo |
-| `.github/workflows/build-manager.yml` | `repository: 'Justadeayo/KernelSU'` (all checkouts) | Replace with your KernelSU repository |
-| `.github/workflows/build-manager.yml` | Repository patch `backslashxx/KernelSU` → `Justadeayo/KSU_Builder`, and the `v3.3.1` base tag | Update patch strings and base tag to match your repo |
-| `.github/workflows/sync.yml` | `repository: Justadeayo/KernelSU`, `Justadeayo/KSU_Builder` | Replace repository names and `--ref dev` with your setup |
-| `devices/violet.json` | `kernel_repo`, `kernel_branch`, `defconfig`, `clang_version`, `clang_branch`, `ak3_repo` | Your device's kernel source, defconfig, toolchain and AnyKernel3 fork |
-| `config.env` | `KSU_REPO_URL` / `KSU_REPO_PIN` (BakaSU), `SUSFS_REPO_URL` / `SUSFS_REPO_PIN` (SuSFS patches) | Pinned commits used by every `build.yml` build; update the pins only after testing |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `tg-msg`, `tg-doc` | none. If either is missing, Telegram steps are skipped and the build continues. |
+| `AK3_REPO`, `AK3_BRANCH` | `anykernel` | `https://github.com/Justadeayo/AnyKernel3.git`, `master` |
+
+**Rules**
+
+- Telegram failures never fail a build.
+- `common.sh` provides `log`, `warn` and `die`. The master script sources it.
+- Logs go to stderr. The only thing on stdout is what a command is meant to return, such as the zip name from `anykernel`.
+- Run `help` to see the commands. An unknown command exits with an error.
+
+**Where it is called**
+
+- `automated.yml`, `kernel.yml`, `kernel_build.yml`: `deps`, `clang`, `ksu-setup`, `compile`, `fail-report`, `prune-ccache`, `tg-msg`, `tg-doc`, `anykernel`
+- `Kernel_&_Manager_build.yml`: `deps`, `clang`, `compile`, `fail-report`, `prune-ccache`, `tg-msg`, `tg-doc`, `anykernel`
+- `build.yml`: `deps`, `tg-msg`, `tg-doc`
+
+The `scripts/env.sh`, `variant.sh`, `ksu.sh`, `compile.sh` and `common.sh` files are the framework used by `build.yml`. They stay separate because they handle the SUSFS build and the device JSON.
+
+**Still inline:** the Manager APK delivery in `Dispatch` (`automated.yml`, `Kernel_&_Manager_build.yml`), the `build-manager.yml` steps, and the job-level setup each kernel workflow has (checkout, swap, ccache, source clone). The last group needs GitHub Actions' own steps or a composite action, so it can't move into a shell script.
 
 ---
-## Overview
-This repository contains eight primary GitHub Actions workflows:
-1. **`build-manager.yml`** — Manager App & `ksud` Binaries
-2. **`automated.yml`** — Automated Kernel & Manager CI (Preconfigured target)
-3. **`Kernel_&_Manager_build.yml`** — Custom Interactive Matrix Builds
-4. **`release.yml`** — Formal Tag & Automated Release Publishing
-5. **`sync.yml`** — Upstream Synchronization with Upstream KernelSU
-6. **`kernel.yml`** — Kernel Build (main standalone build workflow)
-7. **`kernel_build.yml`** — Standalone Kernel Build (extra)
-8. **`build.yml`** — Build SUSFS Kernel (device matrix from `devices/*.json`)
----
-## Workflows Breakdown
-### 1. `build-manager.yml` — Manager App & ksud Binaries
-**Path:** `.github/workflows/build-manager.yml`
-Builds the KernelSU Manager APK and compiles native `ksud` binaries for ARM64 (`aarch64-linux-android`), ARMv7 (`armv7-linux-androideabi`) and x86_64 (`x86_64-linux-android`).
-* **Triggers:**
-  * Push to branches: `main`, `dev`, `ci`, `test`, `staging`
-  * Workflow call (`workflow_call`)
-  * Manual dispatch (`workflow_dispatch`)
-* **Key Features:**
-  * Dynamic PR keystore generation vs. standard dummy release keystore.
-  * Native Rust target compilation with Android NDK r29.
-  * Automatic repacking of APK with compiled native binaries via `repack_apk.py`.
-  * **Manager version** (`Apply Manager Version` step): the version name stays `v3.3.1` (base tag). The version code is set to the exact `KSU_VERSION` number from the `CFLAGS_ksu.o` line of the fork's `kernel/Makefile`; if that is not a plain number, the default Gradle version is kept.
-* **Outputs:**
-  * `manager` — Final repacked and signed Manager APK.
-  * `manager-gradle` — Intermediate Gradle APK.
-  * `ksud-aarch64-linux-android`, `ksud-armv7-linux-androideabi` & `ksud-x86_64-linux-android` — Standalone binaries.
-  * `mappings` — ProGuard mapping files for debugging release builds.
----
 
-### 2. `automated.yml` — Automated Build (Default Device Target)
-**Path:** `.github/workflows/automated.yml`
-Fully automated CI pipeline configured for a specific default target (e.g., Xiaomi Redmi Note 7 Pro `violet`).
-* **Triggers:**
-  * Workflow call (`workflow_call`)
-  * Manual dispatch (`workflow_dispatch`)
-* **Environment Defaults:**
-  ```yaml
-  CLANG_VERSION: "clang-r596125"
-  KERNEL_SOURCE: "https://github.com/Justadeayo/android_kernel_xiaomi_violet"
-  KERNEL_BRANCH: "17"
-  DEFCONFIG_NAME: "vendor/xcalibur-perf_defconfig"
-  DEVICE_CODENAME: "violet"
-  KERNEL_NAME: "XCalibur-XF"
-  ```
-* **Jobs:**
-  1. `build-manager` — Invokes `build-manager.yml` (in parallel with the kernel build) to compile the companion Manager APK.
-  2. `Kernel_CI` — Clones the kernel source, applies `setup.sh` KernelSU patches, appends the KSU flags (`CONFIG_KSU=y`, `CONFIG_KPROBES=y`, `CONFIG_KSU_KPROBE_HOOKS=y`, `CONFIG_KSU_TAMPER_SYSCALL_TABLE=y`, ...) to the defconfig, verifies the flags survived `olddefconfig`, compiles with LLVM/Clang and uploads the AnyKernel3 ZIP as `kernel-zip`.
-  3. `Dispatch` — Runs after both jobs finish, downloads `kernel-zip` and `manager`, and sends both files to Telegram. This guarantees the APK is attached even when the kernel compiles faster than the manager.
-* **Caching:** Clang is cached under `clang-<version>` and ccache under `kernel-<device>`, so repeat runs skip the toolchain download and reuse compiled objects.
----
-### 3. `Kernel_&_Manager_build.yml` — Interactive Custom Builds
-**Path:** `.github/workflows/Kernel_&_Manager_build.yml`
-Interactive, manually triggered workflow allowing users to pass arbitrary kernel sources, branches, defconfigs, root solutions, and Clang toolchains directly via GitHub UI.
-* **Triggers:**
-  * Manual dispatch (`workflow_dispatch`)
-* **Input Options:**
+## Workflow reference
 
-| Input Field | Type | Options / Description | Default |
+### `build.yml`: Build XCalibur-XF SUSFS Kernel
+
+**Purpose:** build the violet kernel with SUSFS, in `ksu` and `nsu` variants, using the pinned framework in `scripts/` and `devices/`. Send the flashable zip to Telegram.
+
+See [Build a SUSFS kernel](#build-a-susfs-kernel-buildyml) for details.
+
+### `automated.yml`: Automated Build for Violet
+
+**Purpose:** a fixed-target build for violet. It builds the kernel and the companion Manager APK in parallel, then sends both to Telegram. It is the workflow `release.yml` calls.
+
+- **Triggers:** manual, or called by `release.yml`.
+- **Defaults:** Clang `clang-r596125`, kernel repo `Justadeayo/android_kernel_xiaomi_violet`, branch `17`, defconfig `vendor/xcalibur-perf_defconfig`, device `violet`, kernel name `XCalibur-XF`.
+- **Jobs:**
+  1. `build-manager`: calls `build-manager.yml` for the Manager APK.
+  2. `Kernel_CI`: clones the kernel, runs KernelSU `setup.sh`, adds the KSU options to the defconfig, checks they survive `olddefconfig`, compiles, and packages the zip.
+  3. `Dispatch`: waits for both jobs, then sends the kernel zip and Manager APK to Telegram.
+  4. `Cache_Cleanup`: prunes old ccache entries.
+
+### `kernel.yml`: Kernel Build (main)
+
+**Purpose:** the main standalone build for any kernel source you give it. It builds the kernel and packages an AnyKernel3 zip. It does not build the Manager APK.
+
+- **Triggers:** manual.
+- **Inputs:** see the table below.
+- **Root choice:** `ksu_type` is `None`, `KernelSU` or `ReSukiSU`. The root setup and the zip label follow this choice.
+
+| Input | Type | Options or description | Default |
 | :--- | :--- | :--- | :--- |
-| `kernel_name` | String | Name of the kernel for build banners | `XCalibur-XF` |
-| `clang_version` | Choice | `clang-r416183b`, `clang-3289846` through `clang-r574158`, `clang-r596125`, `clang-stable` | `clang-r596125` |
-| `kernel_source` | String | Target Git repository URL | `https://github.com/` |
-| `kernel_branch` | String | Target branch | *None (Required)* |
-| `defconfig_name` | String | Relative defconfig path | *None (Required)* |
-| `device_codename` | String | Codename for AnyKernel3 branding | `violet` |
-| `ksu_type` | Choice | `None`, `KernelSU` | `KernelSU` |
-| `BUILD_COMMIT` | String | Build notes/description | `Synced with upstream changes 💯` |
-| `telegram_chat_id` | String | Optional chat ID override | Secret fallback |
-| `telegram_bot_token` | String | Optional bot token override | Secret fallback |
-
-* **Jobs:**
-  1. `build-manager` — Runs only when `ksu_type` is `KernelSU`.
-  2. `Kernel_CI` — Builds the kernel and uploads `kernel-zip`.
-  3. `Dispatch` — Waits for both jobs, then sends the Manager APK, the flashable ZIP and the summary to Telegram.
-* **Advanced Capabilities:**
-  * Dynamic `kernel_name` input to customize build headers, zip file name and notification branding.
-  * Clang toolchain cached per version (shared with the other kernel workflows) and ccache compiler check keyed to the Clang version.
-  * Robust URL encoding using `--data-urlencode` for multi-line Telegram payload stability.
-  * Direct delivery of compiled Manager APK and AnyKernel3 flashable ZIP via Telegram.
-  * Instant Telegram log forwarding on compilation failure (`error_logs.zip` with 35-line preview).
-  
----
-### 4. `kernel.yml` — Kernel Build (main)
-**Path:** `.github/workflows/kernel.yml`
-Main standalone, manually triggered workflow designed to build the kernel image and compile an AnyKernel3 zip without building the KernelSU Manager APK.
-* **Triggers:**
-  * Manual dispatch (`workflow_dispatch`)
-* **Input Options:**
-
-| Input Field | Type | Options / Description | Default |
-| :--- | :--- | :--- | :--- |
-| `kernel_name` | String | Name of the kernel for build banners and zip name | `XCalibur-XF` |
-| `clang_version` | Choice | `clang-r596125`, `clang-r416183b` through `clang-r574158`, `clang-stable` | `clang-r596125` |
-| `kernel_source` | String | Target Git repository URL | `https://github.com/` |
-| `kernel_branch` | String | Target branch | *None (Required)* |
-| `defconfig_name` | String | Relative defconfig path | *None (Required)* |
-| `device_codename` | String | Codename for AnyKernel3 branding | `violet` |
+| `kernel_name` | String | Name used in build banners and the zip name | `XCalibur-XF` |
+| `clang_version` | Choice | `clang-r596125`, `clang-r416183b` to `clang-r574158`, `clang-stable` | `clang-r596125` |
+| `kernel_source` | String | Kernel repository URL | `https://github.com/` |
+| `kernel_branch` | String | Kernel branch | required |
+| `defconfig_name` | String | Defconfig path under `arch/arm64/configs/` | required |
+| `device_codename` | String | Codename used in the zip name and AnyKernel3 | `violet` |
 | `ksu_type` | Choice | `None`, `KernelSU`, `ReSukiSU` | `KernelSU` |
-| `BUILD_COMMIT` | String | Build notes/description | `Synced with upstream changes 💯` |
-| `telegram_chat_id` | String | Optional chat ID override | Secret fallback |
-| `telegram_bot_token` | String | Optional bot token override | Secret fallback |
+| `BUILD_COMMIT` | String | Note added to the build message | `Synced with upstream changes 💯` |
+| `telegram_chat_id`, `telegram_bot_token` | String | Overrides for the secrets | secret fallback |
 
-* **Key Features:**
-  * Always uses the `master` branch of the selected KSU repository (`Justadeayo/KernelSU` or `Justadeayo/sKernelSU`).
-  * Clang toolchain cached per version (`clang-<version>`) with a ccache compiler check, so repeat builds skip the download.
-  * Retry-enabled download for `clang-r596125` and Lineage prebuilt clone for `clang-r416183b`.
-  * Direct delivery of the AnyKernel3 flashable ZIP to Telegram upon success.
-  * Automatic failure reporting and `error_logs.zip` attachment on compilation failure.
-  
----
-### 5. `kernel_build.yml` — Kernel Build (extra)
-**Path:** `.github/workflows/kernel_build.yml`
-Secondary standalone kernel build workflow for additional testing setups or isolated compilation runs without companion manager builds. Same inputs as `kernel.yml`, plus a dynamic KSU branch.
-* **Triggers:**
-  * Manual dispatch (`workflow_dispatch`)
-* **Differences from `kernel.yml`:**
-  * Extra `branch` input (default `master`) selects the branch of the KernelSU / sKernelSU repository used for metadata and `setup.sh`.
-  * `ReSukiSU` builds also append `CONFIG_KSU_SUSFS=y` to the defconfig.
-  * Uploads an extra `kernel-raw-outputs` artifact (`Image`, `Image.gz`, `dtb`, `dtbo.img`, ...) next to `kernel-zip`.
-  * Uses the same shared Clang cache and ccache compiler check as the other kernel workflows.
-* **Key Features:**
-  * Provides a lightweight extra environment for building custom kernel zips.
-  * Optimized for quick testing iterations alongside the main `kernel.yml` pipeline.
-  
----
-### 6. `release.yml` — Formal Release Publishing
-**Path:** `.github/workflows/release.yml`
-Orchestrates production and pre-release publications whenever a version tag (e.g., `v1.0.0`) is pushed, when invoked via dispatch, or when called programmatically.
-* **Triggers:**
-  * Tag Push: `v*`
-  * Workflow call (`workflow_call`)
-  * Manual dispatch (`workflow_dispatch`)
-* **Input Options:**
+- **Jobs:** `Kernel_CI` (build and zip, Telegram on success or failure), then `Cache_Cleanup`.
 
-| Input Field | Type | Options / Description | Default |
-| :--- | :--- | :--- | :--- |
-| `is_prerelease` | Boolean | Force publishing output as a GitHub Pre-release | `false` (Dispatch) / `true` (Call) |
+### `kernel_build.yml`: Kernel Build (extra)
 
-* **Behavior:**
-  1. `build` job calls `automated.yml` to compile kernel ZIPs and Manager APKs. The Manager version is resolved inside `build-manager.yml` (exact Makefile `KSU_VERSION`, else the default Gradle version).
-  2. Calculates incremental build version tags if run manually (e.g., `v3.3.1-<number>`).
-  3. Evaluates release configuration: defaults to full release on `v*` tag pushes, and defaults safely to pre-release for external programmatic calls.
-  4. Publishes an official GitHub Release attached with all `.apk` and `.zip` artifacts.
-  5. No Telegram success message is sent by this workflow; build files are delivered by the `Dispatch` job of `automated.yml`.
-   
----
-### 7. `sync.yml` — Upstream Synchronization
-**Path:** `.github/workflows/sync.yml`  
-Syncs the core KernelSU repository daily with upstream (`backslashxx/KernelSU`), authenticated via Personal Access Token (`SYNC_PAT`), with optional downstream release triggering via manual dispatch.
-* **Triggers:**
-  * Scheduled Cron: Daily at Midnight (`00:00 UTC`)
-  * Manual dispatch (`workflow_dispatch`)
-* **Input Options:**
+**Purpose:** a second standalone build for testing. It has the same inputs as `kernel.yml`, plus a KernelSU branch.
 
-| Input Field | Type | Options / Description | Default |
-| :--- | :--- | :--- | :--- |
-| `trigger_release` | Boolean | Option to trigger `release.yml` on `Justadeayo/KSU_Builder` after a successful sync | `false` |
+- **Differences from `kernel.yml`:**
+  - `branch` input (default `master`) picks the branch of the KernelSU fork used for `setup.sh` and the metadata.
+  - `ReSukiSU` builds add `CONFIG_KSU_SUSFS=y` to the defconfig.
+  - Uploads a `kernel-raw-outputs` artifact with `Image`, `Image.gz`, `dtb` and `dtbo.img`.
 
-* **Behavior:**
-  1. Checks out `Justadeayo/KernelSU` on branch `master` using `${{ secrets.SYNC_PAT }}`.
-  2. Compares local `master` against `upstream/master` (or `upstream/main`).
-  3. If updates exist, performs a hard reset (`git reset --hard`) to align history and force-pushes to origin `master`.
-  4. Formats multi-line commit messages using Python script encoding and sends a Markdown notification via Telegram.
-  5. **Release Trigger:** Automatic scheduled daily runs will **never** trigger `release.yml`. `release.yml` on `Justadeayo/KSU_Builder` (`dev` branch) is only triggered if manually dispatched via `workflow_dispatch` with `trigger_release` set to `true`.
-    
+### `Kernel_&_Manager_build.yml`: Kernel & Manager Build
+
+**Purpose:** the full custom build. It takes any kernel source, builds the kernel and the Manager APK, and sends both to Telegram.
+
+- **Triggers:** manual.
+- **Inputs:** the same as `kernel.yml`, with a fixed `clang_version` list that also includes `clang-3289846`, `clang-r450784e` and `clang-r475365b`.
+- **Jobs:**
+  1. `build-manager`: runs only when `ksu_type` is `KernelSU`.
+  2. `Kernel_CI`: builds the kernel and uploads `kernel-zip`.
+  3. `Dispatch`: sends the Manager APK, the kernel zip and a summary to Telegram.
+  4. `Cache_Cleanup`: prunes old ccache entries.
+
+### `build-manager.yml`: Build Manager
+
+**Purpose:** builds the KernelSU Manager APK and the `ksud` binaries. Other workflows call it. It also runs on push to the listed branches.
+
+- **Triggers:** push to `main`, `dev`, `ci`, `test`, `staging`; `workflow_call`; `workflow_dispatch`.
+- **Jobs:**
+  1. `generate-key`: makes a temporary keystore for PR builds.
+  2. `build-ksud`: builds `ksud` for `aarch64-linux-android`, `armv7-linux-androideabi` and `x86_64-linux-android` with NDK r29.
+  3. `build-manager`: sets the Manager version, then runs Gradle `assembleRelease`.
+  4. `repack-manager`: inserts the `ksud` binaries into the APK and re-signs it.
+- **Manager version:** the version name stays at the base tag. The version code is the `KSU_VERSION` number from the fork's `kernel/Makefile`. If that isn't a plain number, the default Gradle version is kept.
+- **Outputs:** `manager`, `manager-gradle`, `ksud-*`, `mappings`.
+
+### `release.yml`: Release
+
+**Purpose:** publishes a GitHub Release with the built zips and APKs. It runs when a `v*` tag is pushed, or when started by hand or by another workflow.
+
+- **Inputs:** `is_prerelease` (default `false` for manual runs, `true` when called).
+- **Jobs:**
+  1. `build`: calls `automated.yml`.
+  2. `release`: works out the tag and publishes the release with every `.apk` and `.zip`.
+- Manual runs use a version tag such as `v3.3.1-<number>`.
+- The Telegram messages come from `automated.yml`, not from this workflow.
+
+### `sync.yml`: Sync Upstream Updates
+
+**Purpose:** keeps `Justadeayo/KernelSU` aligned with upstream every day. It uses a token because it pushes to another repository.
+
+- **Triggers:** daily cron at 00:00 UTC; manual.
+- **Input:** `trigger_release` (default `false`) starts `release.yml` on `Justadeayo/KSU_Builder` (`dev`) after a successful sync.
+- **Behavior:** compares `master` with upstream. If there are new commits, it resets to upstream and force-pushes. It then sends a Telegram notice.
+- **Scheduled runs never start a release.**
+
 ---
 
-### 8. `build.yml` — Build SUSFS Kernel (device matrix)
-**Path:** `.github/workflows/build.yml`
-Builds every device and variant listed in `devices/*.json`, or one device on request. Each `ksu` build uses the BakaSU and SuSFS versions pinned in `config.env`.
-* **Triggers:**
-  * Scheduled: 1st of every month at 03:17 UTC (`17 3 1 * *`)
-  * Manual dispatch (`workflow_dispatch`)
-* **Input Options:**
+## Build a SUSFS kernel (`build.yml`)
 
-| Input Field | Type | Options / Description | Default |
-| :--- | :--- | :--- | :--- |
-| `device` | String | Device to build (a matching `devices/<name>.json`). Leave empty to build all devices | *empty (all devices)* |
-| `create_release` | Boolean | Create a GitHub Release after the build | `false` |
+`build.yml` builds violet with SUSFS. It is the one workflow that uses the
+framework in `scripts/`, `devices/` and `config.env`.
 
-* **Jobs:**
-  1. `set-matrix` — Reads `devices/*.json` and builds one matrix entry per device and variant.
-  2. `build` — Runs `env.sh`, `variant.sh` and `compile.sh` for each entry. `fail-fast` is off, so one failing device doesn't stop the others.
-  3. `release` — Runs on schedule, or when `create_release` is true. It attaches every flashable zip to a release tagged `xcalibur-xf-<date>-<run_id>`.
-* **Variants:**
-  * `nsu` — stock kernel, no KernelSU.
-  * `ksu` — BakaSU and SuSFS, applied by `scripts/ksu.sh`.
-* **Outputs:** `xcalibur-xf-<device>-<variant>-<date>.zip`, plus debug artifacts (`debug-<device>-<variant>`, with the build log and final `.config`). The `ksu` variant also uploads `xcalibur-xf-<device>-<variant>-versions`, which records the BakaSU and SuSFS versions.
-* **Failure handling:** on failure, the workflow packages any `.rej` patch rejects into `xcalibur-xf-<device>-<variant>-rejects` and checks the log for known issues (`CONFIG_KALLSYMS_ALL`, `static_export_check.mk`).
+### How to run it
 
-#### Framework layout
+1. Go to **Actions** → **Build XCalibur-XF SUSFS Kernel (violet)**.
+2. Click **Run workflow**.
+3. Set **create_release** if you want a GitHub Release. Leave it `false` otherwise.
+
+### What it does
+
+- **Matrix:** two jobs, one for `ksu` and one for `nsu`. `fail-fast` is off, so one failing variant doesn't stop the other.
+- **Steps:**
+  1. Installs dependencies (`master.sh deps`).
+  2. Clones the kernel source from `devices/violet.json`.
+  3. Restores the Clang and ccache caches.
+  4. Runs `env.sh`, `variant.sh` and `compile.sh`.
+  5. Uploads the zip and debug artifacts.
+  6. Sends the zip to Telegram on success, or the last 35 log lines on failure (`master.sh tg-doc` / `tg-msg`).
+- **Release job** (only if `create_release` is `true`): gathers every `xcalibur-xf-*` artifact and publishes one release. Release notes show the BakaSU and SuSFS versions from the `ksu` build.
+
+### Variants
+
+| Variant | What it is |
+| :--- | :--- |
+| `ksu` | BakaSU and SuSFS, applied by `scripts/ksu.sh`. |
+| `nsu` | Stock kernel with no KernelSU. |
+
+### Outputs
+
+| Artifact | Contents |
+| :--- | :--- |
+| `xcalibur-xf-violet-<variant>` | Flashable zip |
+| `debug-violet-<variant>` | Build log and final `.config` |
+| `xcalibur-xf-violet-ksu-versions` | BakaSU and SuSFS versions (`ksu` only) |
+| `xcalibur-xf-violet-<variant>-rejects` | Patch reject files (failed builds only) |
+
+### Framework layout
+
 ```
 config.env            BakaSU and SuSFS repo URLs and pinned commits
 devices/<name>.json   Device config: kernel repo and branch, defconfig, kernel version,
-                      clang version and branch, AnyKernel3 repo and branch, variants
-devices/patches/      Device-specific patch fixes, applied during ksu builds
-scripts/env.sh        Fetches the pinned clang toolchain and exports the build environment
+                      Clang version and branch, AnyKernel3 repo and branch, variants
+devices/patches/      Device-specific fixes applied during ksu builds
+scripts/master.sh     Shared steps for every workflow (see The master script)
+scripts/common.sh     Logging, JSON reader, retrying fetch, kernel version check
+scripts/env.sh        Fetches the pinned Clang and exports the build environment
 scripts/variant.sh    Runs ksu.sh for the ksu variant; nothing extra for nsu
-scripts/ksu.sh        Clones BakaSU and SuSFS at their pins, applies SuSFS, fixes exports, writes the config fragment
-scripts/compile.sh    Builds the kernel, merges the config fragment, packages the AnyKernel3 zip
-scripts/common.sh     Shared helpers: logging, JSON reader, retrying fetch, kernel version check
+scripts/ksu.sh        Clones BakaSU and SuSFS at their pins, applies SuSFS,
+                      fixes exports, writes the config fragment
+scripts/compile.sh    Builds the kernel, merges the fragment, packages the zip
 ```
 
-#### Adding a device
+### Adding a device
+
 1. Create `devices/<name>.json` with the same fields as `devices/violet.json`. The top-level key must match the file name.
-2. Set `kernel_version` to the value in the kernel's `Makefile` (`VERSION.PATCHLEVEL`). The preflight step fails the build if they differ.
-3. Set `clang_branch` to the googlesource branch the clang version was published under. Check it on [googlesource](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86) first. `env.sh` refuses to guess it.
-4. If the SuSFS patch leaves a reject on a file your kernel changes differently, add a port patch to `devices/patches/<name>-<file>.patch` and apply it in `ksu.sh`, as done for violet's `fs/proc/cmdline.c`.
+2. Set `kernel_version` to the `VERSION.PATCHLEVEL` in the kernel's `Makefile`. The preflight step fails the build if they differ.
+3. Set `clang_branch` to the googlesource branch that clang version was published under. `env.sh` won't guess it.
+4. If the SuSFS patch leaves a reject in a file your kernel changes differently, add a port patch under `devices/patches/<name>-<file>.patch` and apply it in `ksu.sh`, as done for violet's `fs/proc/cmdline.c`.
+5. `build.yml` is hardcoded to violet. For a second device, copy the workflow and change `devices/violet.json` to your device's file name in the `Read device config` and `Build` steps.
 
 ---
 
-## 🚀 Quick Start Scenarios
-### Scenario A: Dispatch a Custom Kernel Build
-1. Go to **Actions** → **Kernel & Manager Build**.
-2. Click **Run workflow**.
-3. Fill in your **Kernel Name**, **Kernel Source Repo**, **Branch**, **Defconfig**, and **Device Codename**.
-4. Select your desired **KernelSU Version** (`KernelSU` or `None`).
-5. Trigger build and monitor progress in Telegram or Actions logs.
+## Secrets
 
-### Scenario B: Trigger Automated Manager Build
-1. Push any commit to `main`, `dev`, `ci`, `test` or `staging` (or dispatch `build-manager.yml` manually).
-2. Retrieve compiled manager binaries under **Artifacts** → **manager**.
+Add these under **Settings** → **Secrets and variables** → **Actions**.
 
-### Scenario C: Create an Official Release Tag
-```bash
-git tag v3.3.1
-git push origin v3.3.1
-```
- * release.yml will automatically build the full stack and publish a release.
- 
- 
-### Scenario D: Sync with Upstream
-**Use:** `sync.yml`
-* **Automated Run:** Triggers daily at `00:00 UTC` to keep repository history aligned with upstream. Automated runs perform sync only and strictly bypass downstream releases.
-* **Manual Dispatch:** Run manually via **Actions** → **Sync Upstream Updates**. Optionally check the **"Trigger release.yml after successful sync"** toggle (`trigger_release: true`) to dispatch `release.yml` on `Justadeayo/KSU_Builder` (`dev` branch) upon sync completion.
-
----
-
-## Build Artifacts & Access
-
-### Where to find built files:
-**Releases**
-- Only available after a completed successful process, if not use option below
-
-**GitHub UI:**
-1. Go to **Actions** tab
-2. Select the completed workflow run
-3. Scroll to **Artifacts** section
-4. Download `manager`, `kernel-zip`, etc.
-
-**Artifact Names:**
-- `manager` — Final Manager APK (ready to install)
-- `manager-gradle` — Unsigned Gradle APK (intermediate)
-- `kernel-zip` — Flashable kernel package
-- `kernel-raw-outputs` — Raw `Image` / `dtb` / `dtbo` files (`kernel_build.yml` only)
-- `ksud-aarch64-linux-android` — ARM64 ksud binary
-- `ksud-armv7-linux-androideabi` — ARMv7 ksud binary
-- `ksud-x86_64-linux-android` — x86_64 ksud binary
-- `mappings` — ProGuard obfuscation mappings (release only)
-- `xcalibur-xf-<device>-<variant>` — Flashable zip from `build.yml`
-- `debug-<device>-<variant>` — Build log and final `.config` from `build.yml`
-- `xcalibur-xf-<device>-<variant>-versions` — BakaSU and SuSFS versions (`ksu` only)
-- `xcalibur-xf-<device>-<variant>-rejects` — Patch reject files (failed builds only)
-
-**Telegram**
-- Sent by the `Dispatch` job of `automated.yml` and `Kernel_&_Manager_build.yml` (Manager APK + kernel ZIP), or by the final step of `kernel.yml` / `kernel_build.yml` (kernel ZIP), once the build succeeds and Telegram values were provided via secrets or input.
----
-
-## Configuration & Secrets
-
-## 🔐 Required Repository Secrets
-Add the following under **Settings** → **Secrets and variables** → **Actions**:
-
-| Secret Name | Description | Example |
+| Secret | Used by | Description |
 | :--- | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token from [@BotFather](https://t.me/botfather) | `123456789:ABCdefGhIJKlm...` |
-| `TELEGRAM_CHAT_ID` | Telegram Chat / Channel ID | `-1001234567890` |
-| `SYNC_PAT` | Personal Access Token with repo/workflow permissions for cross-repo synchronization | `ghp_xxxxxxxxxxxx` |
+| `TELEGRAM_BOT_TOKEN` | Telegram steps | Bot token from [@BotFather](https://t.me/botfather) |
+| `TELEGRAM_CHAT_ID` | Telegram steps | Chat or channel ID, e.g. `-1001234567890` |
+| `SYNC_PAT` | `sync.yml` | Personal access token with repo and workflow permissions |
 
-**How to get them:**
-1. **Bot Token:** Talk to [@BotFather](https://t.me/botfather) on Telegram
-2. **Chat ID:** Use [@userinfobot](https://t.me/userinfobot) or message your bot and check logs
+To get the chat ID, message your bot and check the update log, or use [@userinfobot](https://t.me/userinfobot).
 
-### Keystore (for signing APK)
+If the Telegram secrets aren't set, the Telegram steps are skipped and the build still runs.
 
-For **non-PR builds**, the Manager uses dummy keystore credentials (see `build-manager.yml`). 
+### Keystore for release-signed Manager builds
 
-For **production releases**, you may want to supply your own keystore:
-1. Create a keystore file
-2. Encode it: `base64 -w 0 my.keystore > encoded.txt`
-3. Add as GitHub secret: `KEYSTORE_FILE`
-4. Update `build-manager.yml` to use it
+Non-PR builds use the dummy keystore in `build-manager.yml`. To sign with your own key:
+
+1. Create a keystore file.
+2. Encode it: `base64 -w 0 my.keystore > encoded.txt`.
+3. Add it as a secret, for example `KEYSTORE_FILE`.
+4. Update `build-manager.yml` to use it.
 
 ---
 
-## Understanding the Build Process
+## Where the outputs go
 
-### Manager Build Flow
-```
-build-manager.yml
-  ├─ generate-key (creates PR signing key if needed)
-  ├─ build-ksud (compiles ksud for ARM64 + ARMv7 + x86_64)
-  ├─ build-manager (applies manager version, Gradle assembleRelease)
-  └─ repack-manager (injects binaries, re-signs APK)
-```
+**Releases:** only created by `release.yml`, or by `create_release` in `build.yml`.
 
-### Kernel Build Flow
-```
-1. Clone kernel source
-2. Restore Clang cache (or download AOSP Clang on a cache miss)
-3. Apply KernelSU patches (setup.sh)
-4. Modify defconfig with KSU flags
-5. Compile with make -j$(nproc) (ccache enabled)
-6. Copy Image.gz + DTBs
-7. Package with AnyKernel3
-8. Dispatch job sends Manager APK + kernel ZIP to Telegram
-9. release.yml publishes the GitHub Release
-```
+**Actions artifacts:** open the run, scroll to **Artifacts**.
+
+| Artifact | Produced by |
+| :--- | :--- |
+| `manager`, `manager-gradle`, `ksud-*`, `mappings` | `build-manager.yml` |
+| `kernel-zip` | `automated.yml`, `kernel.yml`, `kernel_build.yml`, `Kernel_&_Manager_build.yml` |
+| `kernel-raw-outputs` | `kernel_build.yml` |
+| `xcalibur-xf-violet-<variant>` | `build.yml` |
+| `debug-violet-<variant>` | `build.yml` |
+| `xcalibur-xf-violet-ksu-versions` | `build.yml` (`ksu` only) |
+| `xcalibur-xf-violet-<variant>-rejects` | `build.yml` (failed builds only) |
+
+**Telegram:** the kernel zip is sent on success. A failed build sends the last 35 log lines. `Dispatch` also sends the Manager APK in the two workflows that build it.
+
+---
+
+## Hardcoded values to change when forking
+
+If you fork this repository for your own kernel or device, replace these values.
+
+| File | Value | Replace with |
+| :--- | :--- | :--- |
+| `.github/workflows/automated.yml`, `Kernel_&_Manager_build.yml` | `Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev` | Your username, repo and branch |
+| `.github/workflows/automated.yml` | `KERNEL_SOURCE`, `KERNEL_BRANCH`, `DEFCONFIG_NAME` | Your device's kernel repo, branch and defconfig |
+| `.github/workflows/kernel.yml`, `kernel_build.yml` | `Justadeayo/KernelSU`, `Justadeayo/sKernelSU`, `Justadeayo/AnyKernel3` | Your forks |
+| `scripts/master.sh` | `AK3_REPO`, `AK3_BRANCH` defaults | Your AnyKernel3 fork |
+| `.github/workflows/release.yml` | Tag prefix and git identity | Your tag prefix and git identity |
+| `.github/workflows/sync.yml` | `Justadeayo/KernelSU`, `Justadeayo/KSU_Builder` | Your repos |
+| `.github/workflows/build-manager.yml` | `Justadeayo/KernelSU` checkouts and the repository patch | Your KernelSU repo |
+| `devices/violet.json` | `kernel_repo`, `kernel_branch`, `defconfig`, `clang_version`, `clang_branch`, `ak3_repo` | Your device's values |
+| `config.env` | `KSU_REPO_URL` and `KSU_REPO_PIN`, `SUSFS_REPO_URL` and `SUSFS_REPO_PIN` | Your pins. Update them only after testing. |
+
 ---
 
 ## Troubleshooting
 
-### Build fails with "Cannot find kernel source"
-- **Cause:** Kernel repo URL or branch is wrong
-- **Fix:** Verify URL and branch exist on GitHub; use HTTPS URLs
+### "Cannot find kernel source"
+The kernel repo URL or branch is wrong. Check that both exist and use an HTTPS URL.
 
-### Manager APK is unsigned or won't install
-- **Cause:** Running on a PR build without proper keystore
-- **Fix:** Use on main branches or supply your own keystore via secrets
+### Kernel compile fails in `olddefconfig`
+The defconfig path is wrong, or a symbol dependency is broken. Check the path under `arch/arm64/configs/`.
 
-### No Telegram notifications
-- **Cause:** Bot token or chat ID is invalid/missing
-- **Fix:** Verify secrets in **Settings → Secrets and variables → Actions**
+### Out of disk space
+The Clang toolchain and kernel source are large. The workflows set up swap space. Check the swap step in the log.
 
-### Kernel compilation fails ("olddefconfig" issues)
-- **Cause:** Defconfig doesn't exist or symbol dependencies broken
-- **Fix:** Verify defconfig path matches your kernel source
+### Telegram messages don't arrive
+The bot token or chat ID is missing or wrong. Check the secrets. A missing secret skips the Telegram steps without failing the build.
 
-### Out of disk space during build
-- **Cause:** Clang toolchain + kernel source are large
-- **Fix:** Workflow includes SWAP setup; monitor via logs
-
-### APK or Kernel ZIP not in artifacts
-- **Cause:** Build failed silently or naming mismatch
-- **Fix:** Check job logs in **Actions → [Run] → [Job]** for error messages
+### Clang downloads on every run
+GitHub caches are visible only to the branch that created them, or to the default branch. A new `clang_version` creates a new cache, so the first run after a change always downloads. Run from the same branch each time.
 
 ### Manager APK missing in Telegram
-- **Cause:** `build-manager` failed or was skipped (e.g. `ksu_type` set to `None`), so the `Dispatch` job found no `manager` artifact
-- **Fix:** Open the `Dispatch` job log for the "No manager APK found" warning, then check the `build-manager` job result
+`build-manager` failed or was skipped (for example, `ksu_type` is `None`). Check the `Dispatch` job for the "No manager APK found" warning, then check the `build-manager` result.
 
-### Clang downloads again on every run
-- **Cause:** GitHub caches are only visible to the same branch (or the default branch), and a new Clang version creates a new cache
-- **Fix:** Run the workflows from the same branch; the first run after changing `clang_version` always downloads once
+### Artifact or zip missing
+Check the job log for errors. Zip names follow `<kernel-name>_<device>_<label>_<timestamp>`. Make sure the artifact name you're looking for matches.
 
-### `build.yml`: SuSFS patch produced real rejected hunks
-- **Cause:** the SuSFS patch doesn't match a kernel file. Check the `-rejects` artifact for the `.rej` file.
-- **Fix:** add a port patch under `devices/patches/` and apply it in `ksu.sh`, as for violet's `fs/proc/cmdline.c`.
+### `build.yml`: real SuSFS rejects
+The SuSFS patch doesn't match a kernel file. Download the `-rejects` artifact and find the `.rej` file. Add a port patch under `devices/patches/` and apply it in `ksu.sh`.
 
 ### `build.yml`: BakaSU is not at the pinned commit
-- **Cause:** `setup.sh` couldn't check out `KSU_REPO_PIN` and fell back to the default branch.
-- **Fix:** confirm `KSU_REPO_PIN` in `config.env` exists in the BakaSU repository.
+`setup.sh` couldn't check out `KSU_REPO_PIN` and fell back to the default branch. Confirm the pin exists in the BakaSU repository.
 
 ### `build.yml`: `kernel_version mismatch`
-- **Cause:** `kernel_version` in `devices/<name>.json` doesn't match the kernel's `Makefile`.
-- **Fix:** update the JSON to the version the `Makefile` reports.
+`kernel_version` in `devices/<name>.json` doesn't match the kernel's `Makefile`. Update the JSON.
 
-### Workflow calls wrong branch
-- **Cause:** Hardcoded branch reference instead of dynamic
-- **Fix:** Use `${{ github.ref_name }}` instead of hardcoded branch names
+### `master.sh clang` can't download a version
+None of the googlesource refs has that version. Check the name on [googlesource](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86) and add its ref to `cmd_clang` if it lives somewhere new.
 
----
-
-## Advanced: Customizing Workflows
-
-### Change Telegram notification recipients
-Edit the workflow and update hardcoded chat IDs, or pass as secret:
-
-```yaml
-TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-```
-
-### Add a new device preset
-1. Duplicate `automated.yml`
-2. Rename to e.g. `automated-alioth.yml`
-3. Change `DEVICE_CODENAME`, `DEFCONFIG_NAME`, etc.
-4. Update `on` trigger or add manual dispatch inputs
-
-### Customize Clang version
-In `automated.yml` or manual workflow, change:
-```yaml
-CLANG_VERSION: "clang-r596125"  # Change this
-```
-
-Available versions: `clang-r596125`, `clang-r574158`, `clang-r563880c`, `clang-r450784e`, `clang-stable`, `and more`
-
-### Skip specific build steps
-Add conditions to any step:
-```yaml
-- name: Some Step
-  if: ${{ github.event_name == 'workflow_dispatch' }}
-  run: ...
-```
-
-### Use dynamic branch references
-When calling workflows from other workflows, use:
-```yaml
-uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@${{ github.ref_name }}
-```
-
-Instead of hardcoding:
-```yaml
-uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
-```
+### A workflow calls the wrong branch
+Use `${{ github.ref_name }}` instead of a hardcoded branch name when calling a reusable workflow.
 
 ---
 
-## Workflow Status & Monitoring
+## Credits, license and version history
 
-### View workflow status:
-1. Go to **Actions** tab
-2. Select workflow (e.g., "Automated Build for Violet")
-3. Click the latest run to see real-time logs
+### Credits
 
-### Interpret badge colors:
-- 🟢 **Green** — All steps passed
-- 🟡 **Yellow** — Running
-- 🔴 **Red** — Failed (check logs)
+- [yureixen](https://github.com/yureixen/zincore-forge) for Zincore Forge, whose framework `build.yml` is based on. Zincore Forge is licensed under GPL-2.0.
 
-### Check build logs for errors:
-1. Click the failed run
-2. Click the failed job (e.g., "Kernel_CI")
-3. Expand the failed step and read error messages
+### License
 
----
+- The license in `LICENSE` covers the files written for this repository.
+- Files copied or adapted from [Zincore Forge](https://github.com/yureixen/zincore-forge) are licensed under **GPL-2.0**. Each has a header comment, and the GPL-2.0 text is in `LICENSE-GPL-2.0`. These are `scripts/common.sh`, `compile.sh`, `env.sh`, `ksu.sh`, `variant.sh`, `config.env` and `.github/workflows/build.yml`.
 
-## Performance Tips
+### Support
 
-### Reduce build time:
-- Use `clang-stable` (smallest download)
-- Reduce SWAP if you have enough RAM: `swap-size-gb: 8`
-- Clang toolchains and ccache are cached between runs automatically (key `clang-<version>` / `kernel-<device>`)
+Report problems through GitHub Issues. Include the workflow name, the device, the kernel source and branch, and the error log. Support is best-effort.
 
-### Optimize artifact storage:
-- Workflows auto-expire artifacts after 30 days
-- Manually delete old runs to save space
-- Only upload essential artifacts (disable `mappings` if not needed)
-
----
-
-## Branch-Specific Notes
-
-This README applies to the **dev** branch (and compatible branches like **test**).
-
-**⚠️ Use with Caution:** While these workflows have been tested and certified as of the current date, they are provided on an **as-is basis**. You assume all responsibility for:
-- Testing thoroughly before production use
-- Compatibility with your specific hardware and setup
-- Any bricked devices or failed builds
-- Data loss or other adverse outcomes
-
-The workflows here are provided for testing and evaluation purposes. Always verify compatibility with your setup before using in production.
-
-**Branch comparison:**
-- **main:** ${{To_be_Updated}}
-- **test:** dev workflows (testing phase, use with caution)
-- **dev:** Extended custom workflows (tested and certified)
-
----
-
-## Support & Contributing
-
-**Issues or improvements?**
-- Report via GitHub Issues with workflow name and error logs
-- Include device info and kernel source details
-- You can also report any issues or feedback directly to my GitHub DM using the following format:
-  ```text
-  [Workflow Issue / Feedback]
-  Workflow Name: <e.g., Kernel_&_Manager_build.yml>
-  Device / Codename: <e.g., Xiaomi Redmi Note 7 Pro / violet>
-  Kernel Source & Branch: <e.g., https://github.com/... / 17>
-  Error Description / Logs: <Brief attached details logs or>
-  ```
-- Note: Support is provided on best-effort basis
-**Want to add a new workflow?**
-- Follow the naming convention: `workflow-purpose.yml`
-- Document triggers, inputs, and outputs
-- Test on a non-main branch first
-- Ensure dynamic references where applicable
----
-## Credits
-- [yureixen](https://github.com/yureixen/zincore-forge) for Zincore Forge, whose build framework (`build.yml`, `config.env`, `devices/`, `scripts/`) this repository's `build.yml` is based on. Zincore Forge is licensed under GPL-2.0.
-
----
-## License
-- The license in `LICENSE` applies to the files written for this repository.
-- Files copied or adapted from [Zincore Forge](https://github.com/yureixen/zincore-forge) are licensed under **GPL-2.0**. They carry a header comment, and the GPL-2.0 text is in `LICENSE-GPL-2.0`. These are `scripts/*.sh`, `config.env` and `.github/workflows/build.yml`.
-
----
-## Disclaimer
-By using these workflows, you acknowledge:
-- ✅ You understand the experimental nature of this branch
-- ✅ You will test thoroughly before production use
-- ✅ You assume all risks and responsibility for outcomes
-- ✅ The authors and maintainers are not liable for any damages
-- ✅ You have read and accepted the `LICENSE`
-For more information, see `LICENSE` in the repository root.
----
----
----
-## 📑 Version History
+### Version history
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
-| **2.3** | 2026-10-28 | Added `build.yml` (Build SUSFS Kernel) with `devices/*.json`, pinned `config.env` and the `scripts/` framework; violet points at Justadeayo/android_kernel_xiaomi_violet branch `17` with a SuSFS cmdline port patch; README updated to match current workflow defaults | `dev` |
-| **2.2** | 2026-10-18 | Base release tag and version references bumped from `v3.3.0` to `v3.3.1` across `release.yml`, `build-manager.yml` and README | `dev` |
-| **2.1** | 2026-10-06 | Shared Clang cache and ccache compiler check across all kernel workflows; moved Telegram delivery of `automated.yml` and `Kernel_&_Manager_build.yml` into a `Dispatch` job so the Manager APK is always attached; `release.yml` no longer sends a Telegram success message and `build-manager.yml` now sets the Manager version code from the fork's Makefile `KSU_VERSION` (else the default Gradle version) with version name `v3.3.0`; added `clang-r596125` to `Kernel_&_Manager_build.yml`; README synced with all workflows | `dev` |
-| **2.0** | 2026-09-19 | Refactored `kernel_build.yml` to be a dynamic version of `kernel.yml` in terms of KSU_REPO branch, updated build manager workflow steps to match upstream | `dev` |
-| **1.9** | 2026-09-13 | Updated `sync.yml` to daily cron schedule; renamed `release.yml` job from `Full-Release` to `build`; refactored prerelease logic to default external calls to prerelease | `dev` |
-| **1.8** | 2026-09-11 | Stripped out SUSFS patch URL dependencies across all active kernel workflows | `dev` |
-| **1.7** | 2026-09-11 | Refactor release to be prerelease on workflow call and full release on workflow dispatch | `dev` |
-| **1.6** | 2026-09-08 | Refactor workflows to work from secondary repository, implemented the use of PAT to communicate with KernelSU Repo `(for sync.yml)`, dynamic naming of flashable zip file | `dev` |
-| **1.5** | 2026-09-07 | Updated workflow count to 7, designated `kernel.yml` as main standalone, added `kernel_build.yml` (extra), updated `Kernel_&_Manager_build.yml` with dynamic `kernel_name` and Telegram `--data-urlencode` payload fixes. | `dev` |
-| **1.4** | 2026-09-05 | Added kernel.yml for standalone kernel builds & supported `clang-r416183b` for faster build | `dev` |
-| **1.3** | 2026-09-01 | Extended parameter customization, SuSFS 4.14 patch automation, and hardcode mapping guide | `dev` |
-| **1.2** | 2026-08-19 | Automated upstream synchronization and scheduled release triggers | `dev`, `test` |
-| **1.1** | 2026-07-26 | Dynamic workflow references and interactive dispatch parameters | `dev`, `test` |
-| **1.0** | 2026-07-20 | Initial automated kernel & manager build release | `test` |
+| **2.4** | 2026-10-28 | Added `scripts/master.sh`, which holds the shared dependency, Clang, Telegram, AnyKernel3, KernelSU setup, compile, failure-report and ccache-prune steps. Telegram sends retry as plain text when Markdown is rejected. Wired `automated.yml`, `kernel.yml`, `kernel_build.yml`, `Kernel_&_Manager_build.yml` and `build.yml` to it. `build.yml` is now violet-only with a manual trigger, a `create_release` input and Telegram delivery. Rewrote this README around each workflow's purpose. | `dev` |
+| **2.3** | 2026-10-28 | Added `build.yml` (Build SUSFS Kernel) with `devices/*.json`, pinned `config.env` and the `scripts/` framework. Violet targets Justadeayo/android_kernel_xiaomi_violet branch `17` with a SuSFS cmdline port patch. | `dev` |
+| **2.2** | 2026-10-18 | Base release tag and version references bumped from `v3.3.0` to `v3.3.1` in `release.yml`, `build-manager.yml` and this README. | `dev` |
+| **2.1** | 2026-10-06 | Shared Clang cache and ccache compiler check across kernel workflows. Telegram delivery moved into a `Dispatch` job so the Manager APK is always attached. `release.yml` no longer sends a Telegram success message. Manager version code comes from the fork's Makefile. Added `clang-r596125` to `Kernel_&_Manager_build.yml`. | `dev` |
+| **2.0** | 2026-09-19 | `kernel_build.yml` became a dynamic version of `kernel.yml`, with a KernelSU branch input. Build Manager steps matched to upstream. | `dev` |
+| **1.9** | 2026-09-13 | `sync.yml` moved to a daily cron. `release.yml` job renamed to `build`. External calls default to prerelease. | `dev` |
+| **1.8** | 2026-09-11 | Removed SuSFS patch URL dependencies from the active kernel workflows. | `dev` |
+| **1.7** | 2026-09-11 | Release is a prerelease on workflow call and a full release on dispatch. | `dev` |
+| **1.6** | 2026-09-08 | Workflows work from a secondary repository. PAT used for `sync.yml`. Flashable zip name is dynamic. | `dev` |
+| **1.5** | 2026-09-07 | Seven workflows. `kernel.yml` is the main standalone build. Added `kernel_build.yml`. Dynamic `kernel_name` in `Kernel_&_Manager_build.yml`. Telegram payload fixes. | `dev` |
+| **1.4** | 2026-09-05 | Added `kernel.yml` and `clang-r416183b` support. | `dev` |
+| **1.3** | 2026-09-01 | Parameter customization, SuSFS 4.14 patch automation, hardcoded-value guide. | `dev` |
+| **1.2** | 2026-08-19 | Automated upstream sync and scheduled release triggers. | `dev`, `test` |
+| **1.1** | 2026-07-26 | Dynamic workflow references and interactive dispatch parameters. | `dev`, `test` |
+| **1.0** | 2026-07-20 | Initial automated kernel and Manager build release. | `test` |
 
 ---
-**Last Updated:** 2026-10-28 
-**Primary Branches:** dev, test
-**Status:** ⚠️ Development Phase
+
+**Last updated:** 2026-10-28
+**Primary branch:** `dev`
