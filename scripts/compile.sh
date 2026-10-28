@@ -90,10 +90,12 @@ fi
 log "Kernel image: $IMAGE_PATH"
 
 if [ "$VARIANT" = "ksu" ]; then
-    grep -oE "(BakaSU|ReSukiSU) version name: [^ ]+" "$BUILD_LOG" | head -1 | sed -E 's/^[A-Za-z]+ version name: //' > "${WORKDIR}/${DEVICE}-bakasu-version.txt" || true
-    grep -oE "Supported (Unofficial )?Managers?: .*" "$BUILD_LOG" | head -1 | sed -E 's/^Supported (Unofficial )?Managers?: //; s/ +$//' > "${WORKDIR}/${DEVICE}-bakasu-managers.txt" || true
-    [ -s "${WORKDIR}/${DEVICE}-bakasu-version.txt" ] || die "KSU build finished but no BakaSU version string was found in $BUILD_LOG, the version grep may be out of date"
-    [ -s "${WORKDIR}/${DEVICE}-bakasu-managers.txt" ] || die "KSU build finished but no supported manager list was found in $BUILD_LOG, the grep may be out of date"
+    # Version: the commit of the KernelSU clone that setup.sh put in the tree.
+    KSU_VER=$(git -C "${WORKDIR}/KernelSU" describe --tags --always 2>/dev/null || git -C "${WORKDIR}/KernelSU" rev-parse --short HEAD 2>/dev/null || true)
+    [ -n "$KSU_VER" ] || die "KernelSU clone not found at ${WORKDIR}/KernelSU, cannot record its version"
+    echo "$KSU_VER" > "${WORKDIR}/${DEVICE}-ksu-version.txt"
+    # Source: the repository and branch the driver was cloned from (config.env).
+    echo "${KSU_REPO_URL:-unknown} (${KSU_REPO_BRANCH:-unknown})" > "${WORKDIR}/${DEVICE}-ksu-managers.txt"
 fi
 
 cp "$IMAGE_PATH" "$AK3_DIR/"

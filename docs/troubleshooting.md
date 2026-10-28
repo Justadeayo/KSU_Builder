@@ -43,8 +43,8 @@ None of the googlesource refs has that version. Check the name on [googlesource]
 ### Real SuSFS rejects
 The SuSFS patch doesn't match a kernel file. Download the `-rejects` artifact and find the `.rej` file. Add a port patch under `devices/patches/` and apply it in `ksu.sh`.
 
-### BakaSU is not at the pinned commit
-`setup.sh` couldn't check out `KSU_REPO_PIN` and fell back to the default branch. Confirm the pin exists in the BakaSU repository.
+### KernelSU is not at the pinned commit
+`setup.sh` couldn't check out `KSU_REPO_PIN` and fell back to the default branch. Confirm the pin exists in the KernelSU repository.
 
 ### `kernel_version mismatch`
 `kernel_version` in `devices/<name>.json`, or the `kernel_version` input in `build-custom.yml`, doesn't match the kernel's `Makefile`. Update it.

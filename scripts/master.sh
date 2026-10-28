@@ -16,7 +16,7 @@
 #   bash scripts/master.sh fail-report <log-file> <device> <label> <start-epoch>
 #   bash scripts/master.sh prune-ccache <cache-key>
 #   bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
-#       label: KernelSU, ReSukiSU, or None/NoKSU (no root). Prints the zip name on stdout.
+#       label: KernelSU, BakaSU, or None/NoKSU (no root). Prints the zip name on stdout.
 #
 # Environment used by the Telegram and AnyKernel3 commands:
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  optional; if unset, Telegram steps are skipped
@@ -175,7 +175,7 @@ cmd_anykernel() {
 # Runs a KernelSU-family setup.sh inside the kernel tree and appends the
 # options that root needs to the defconfig.
 #   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path> <setup-url>
-# ksu-type: None (does nothing), KernelSU, ReSukiSU.
+# ksu-type: None (does nothing), KernelSU, BakaSU.
 cmd_ksu_setup() {
     local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url>}"
     local ksu_type="${2:?ksu-type}" defconfig="${3:?defconfig path}" url="${4:?setup.sh url}"
@@ -194,7 +194,6 @@ cmd_ksu_setup() {
         echo "CONFIG_KSU_KPROBE_HOOKS=y"
         echo "CONFIG_OVERLAY_FS=y"
         echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"
-        [ "$ksu_type" = "ReSukiSU" ] && echo "CONFIG_KSU_SUSFS=y"
     } >> "$defconfig"
     cd - >/dev/null
     log "KernelSU (${ksu_type}) configured in ${defconfig}"

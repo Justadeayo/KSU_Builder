@@ -42,13 +42,13 @@ The full input list is in [Workflows](workflows.md#build-customyml-build-custom-
   5. Runs `env.sh`, `variant.sh` and `compile.sh`.
   6. Uploads the zip and debug artifacts.
   7. Sends the zip to Telegram on success, or the last 35 log lines on failure.
-- **Release job** (only if `create_release` is `true`): gathers every `xcalibur-xf-*` artifact and publishes one release. The release notes show the BakaSU and SuSFS versions from the `ksu` build.
+- **Release job** (only if `create_release` is `true`): gathers every `xcalibur-xf-*` artifact and publishes one release. The release notes show the KernelSU and SuSFS versions from the `ksu` build.
 
 ## Variants
 
 | Variant | What it is |
 | :--- | :--- |
-| `ksu` | BakaSU and SuSFS, applied by `scripts/ksu.sh` |
+| `ksu` | KernelSU and SuSFS, applied by `scripts/ksu.sh` |
 | `nsu` | Stock kernel with no KernelSU |
 
 ## Outputs
@@ -57,7 +57,7 @@ The full input list is in [Workflows](workflows.md#build-customyml-build-custom-
 | :--- | :--- |
 | `xcalibur-xf-<device>-<variant>` | Flashable zip |
 | `debug-<device>-<variant>` | Build log and final `.config` |
-| `xcalibur-xf-<device>-ksu-versions` | BakaSU and SuSFS versions (`ksu` only) |
+| `xcalibur-xf-<device>-ksu-versions` | KernelSU and SuSFS versions (`ksu` only) |
 | `xcalibur-xf-<device>-<variant>-rejects` | Patch reject files (failed builds only) |
 
 See [Secrets and outputs](secrets-and-outputs.md) for where these end up.
@@ -65,7 +65,7 @@ See [Secrets and outputs](secrets-and-outputs.md) for where these end up.
 ## Framework layout
 
 ```
-config.env            BakaSU and SuSFS repo URLs and pinned commits
+config.env            KernelSU and SuSFS repo URLs and pinned commits
 devices/<name>.json   Device config: kernel repo and branch, defconfig, kernel version,
                       Clang version and branch, AnyKernel3 repo and branch, variants
 devices/patches/      Device-specific fixes applied during ksu builds
@@ -73,7 +73,7 @@ scripts/master.sh     Shared steps for every workflow (see Master script)
 scripts/common.sh     Logging, JSON reader, retrying fetch, kernel version check
 scripts/env.sh        Fetches the pinned Clang and exports the build environment
 scripts/variant.sh    Runs ksu.sh for the ksu variant; nothing extra for nsu
-scripts/ksu.sh        Clones BakaSU and SuSFS at their pins, applies SuSFS,
+scripts/ksu.sh        Clones KernelSU and SuSFS at their pins, applies SuSFS,
                       fixes exports, writes the config fragment
 scripts/compile.sh    Builds the kernel, merges the fragment, packages the zip
 ```

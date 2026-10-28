@@ -25,7 +25,7 @@ bash scripts/master.sh help
 | :--- | :--- |
 | `deps` | Removes stale apt sources, then installs the build packages (one list for every workflow). |
 | `clang` | Downloads and extracts a Clang version into `toolchains/<version>`. Tries the `main-kernel`, `android-14`, `android16-qpr2` and `main` googlesource refs in turn. `clang-r416183b` is cloned from LineageOS. Fails if `bin/clang` is missing afterwards. Skips the download if Clang is already there. |
-| `ksu-setup` | Runs a KernelSU or ReSukiSU `setup.sh` in the kernel tree, rewrites the fork owner to Justadeayo, and appends the root options to the defconfig. `ReSukiSU` also gets `CONFIG_KSU_SUSFS=y`. `None` does nothing. The caller gives the `setup.sh` URL, so each workflow still chooses its own fork and branch. |
+| `ksu-setup` | Runs a KernelSU or BakaSU `setup.sh` in the kernel tree, rewrites the fork owner to Justadeayo, and appends the root options to the defconfig. `None` does nothing. The caller gives the `setup.sh` URL, so each workflow still chooses its own fork and branch. |
 | `compile` | Exports the Clang and ccache environment, runs `make` and `olddefconfig`, and builds with the log written to the given file. With `REQUIRE_KSU_TAMPER=true` it fails when the final `.config` lost `CONFIG_KSU_TAMPER_SYSCALL_TABLE`. |
 | `fail-report` | Sends the failure message with the last 35 log lines zipped. Sends a plain message when there is no log. The duration comes from the start epoch. |
 | `prune-ccache` | Deletes all but the newest ccache entry for a key. |

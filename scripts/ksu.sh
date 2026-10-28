@@ -11,7 +11,7 @@ DEVICE="${1:?Usage: ksu.sh <device>}"
 DEVICE_JSON="devices/${DEVICE}.json"
 
 : "${KSU_REPO_URL:?KSU_REPO_URL not set — source config.env first}"
-: "${KSU_REPO_PIN:?KSU_REPO_PIN not set — source config.env first}"
+: "${KSU_REPO_BRANCH:?KSU_REPO_BRANCH not set — source config.env first}"
 : "${SUSFS_REPO_URL:?SUSFS_REPO_URL not set — source config.env first}"
 : "${SUSFS_REPO_PIN:?SUSFS_REPO_PIN not set — source config.env first}"
 
@@ -20,15 +20,13 @@ KERNEL_VERSION=$(read_field kernel_version)
 
 # Clone + pin dependencies BEFORE executing anything from them
 WORKDIR="$(pwd)"
-KSU_SRC="${WORKDIR}/.xcalibur-xf_deps/bakasu"
+KSU_SRC="${WORKDIR}/.xcalibur-xf_deps/kernelsu"
 SUSFS_SRC="${WORKDIR}/.xcalibur-xf_deps/susfs"
 mkdir -p "$(dirname "$KSU_SRC")"
 
-log "Cloning BakaSU (pinned to ${KSU_REPO_PIN})"
-git init --quiet "$KSU_SRC"
-git -C "$KSU_SRC" remote add origin "$KSU_REPO_URL"
-git -C "$KSU_SRC" fetch --quiet --depth 1 origin "$KSU_REPO_PIN"
-git -C "$KSU_SRC" checkout --quiet FETCH_HEAD
+log "Cloning KernelSU (${KSU_REPO_URL}, branch ${KSU_REPO_BRANCH}, depth 1)"
+rm -rf "$KSU_SRC"
+git clone --quiet --depth 1 --branch "$KSU_REPO_BRANCH" "$KSU_REPO_URL" "$KSU_SRC"
 
 log "Cloning SuSFS source (JackA1ltman, pinned to ${SUSFS_REPO_PIN})"
 git init --quiet "$SUSFS_SRC"
@@ -41,11 +39,11 @@ FRAGMENT_FILE="${FRAGMENT_DIR}/kernelsu.config"
 mkdir -p "$FRAGMENT_DIR"
 : > "$FRAGMENT_FILE"
 
-log "Installing BakaSU (pinned to ${KSU_REPO_PIN})"
-bash "${KSU_SRC}/kernel/setup.sh" "$KSU_REPO_PIN"
-
-# setup.sh silently falls back to the default branch if checkout fails; make sure the pin was really used
-[ "$(git -C KernelSU rev-parse HEAD)" = "$KSU_REPO_PIN" ] || die "BakaSU is not at the pinned commit ${KSU_REPO_PIN}, setup.sh checkout probably failed"
+log "Installing KernelSU (branch ${KSU_REPO_BRANCH})"
+# setup.sh in the fork still names the upstream clone; point it at this fork.
+sed 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' "${KSU_SRC}/kernel/setup.sh" > "${KSU_SRC}/kernel/setup.fork.sh"
+bash "${KSU_SRC}/kernel/setup.fork.sh" "$KSU_REPO_BRANCH"
+[ -d KernelSU/kernel ] || die "KernelSU was not installed into the kernel tree, check kernel/setup.sh"
 
 log "Applying SuSFS patch for kernel $KERNEL_VERSION"
 
@@ -67,13 +65,26 @@ else
         die "patch exited with code $PATCH_RC — not a hunk rejection but a fatal patch error (malformed patch, unreadable target file). Check $SUSFS_PATCH_FILE."
     fi
     
-    # Device-specific port: violet's fs/proc/cmdline.c differs from upstream,
-    # so the cmdline spoof hunk is applied by hand from devices/patches/.
-    PORT_PATCH="devices/patches/${DEVICE}-cmdline-susfs-port.patch"
-    if [ -f fs/proc/cmdline.c.rej ] && [ -f "$PORT_PATCH" ]; then
-        log "Applying device port for fs/proc/cmdline.c ($PORT_PATCH)"
+    # Branch-specific port. Some kernel branches differ from upstream in files
+    # the SuSFS patch touches, so the rejected hunks are applied by hand.
+    # The port is picked by device and branch:
+    #   devices/patches/<device>-<kernel_branch>-susfs-port.patch
+    # Branches without their own port fall back to the older
+    # devices/patches/<device>-cmdline-susfs-port.patch, when fs/proc/cmdline.c rejected.
+    BRANCH=$(read_field kernel_branch)
+    PORT_PATCH="devices/patches/${DEVICE}-${BRANCH}-susfs-port.patch"
+    LEGACY_PORT="devices/patches/${DEVICE}-cmdline-susfs-port.patch"
+    if [ ! -f "$PORT_PATCH" ] && [ -f fs/proc/cmdline.c.rej ] && [ -f "$LEGACY_PORT" ]; then
+        PORT_PATCH="$LEGACY_PORT"
+    fi
+
+    if [ -f "$PORT_PATCH" ] && [ -n "$(find . -path ./.xcalibur-xf_deps -prune -o -name '*.rej' -print -quit)" ]; then
+        log "Applying device port for branch ${BRANCH} ($PORT_PATCH)"
         patch -p1 < "$PORT_PATCH" || die "device port $PORT_PATCH failed to apply"
-        rm -f fs/proc/cmdline.c.rej
+        # Remove the rejects this port resolves (every file it patches).
+        sed -nE 's#^\+\+\+ [^/]+/([^[:space:]]+).*#\1#p' "$PORT_PATCH" | while read -r f; do
+            rm -f -- "${f}.rej"
+        done
     fi
 
     # A reject is ignored only if it is whitespace-only
@@ -113,7 +124,7 @@ grep -o "Current susfs patch version:[0-9.]*" /tmp/xcalibur-xf_susfs_hook.log | 
 [ -s "${WORKDIR}/${DEVICE}-susfs-version.txt" ] || die "SuSFS hook script ran but no patch version was found in /tmp/xcalibur-xf_susfs_hook.log, the version grep may be out of date"
 
 # Core config fragment (structural — merged into out/.config by compile.sh)
-log "Patching static symbol exports required by BakaSU"
+log "Patching static symbol exports required by KernelSU"
 
 UNSTATIC_APPLIED=0
 UNSTATIC_TOTAL=0
@@ -147,7 +158,7 @@ unstatic "security/selinux/ss/services.c" "void context_struct_compute_av("
 
 log "Static-symbol export summary: ${UNSTATIC_APPLIED}/${UNSTATIC_TOTAL} applied"
 if [ "$UNSTATIC_APPLIED" -lt "$UNSTATIC_TOTAL" ]; then
-    warn "$((UNSTATIC_TOTAL - UNSTATIC_APPLIED)) pattern(s) above were NOT applied — this is expected if they're already non-static in this tree, but if this is a NEW kernel source (different repo/version than previously verified), manually confirm BakaSU actually has the symbol access it needs before trusting this build."
+    warn "$((UNSTATIC_TOTAL - UNSTATIC_APPLIED)) pattern(s) above were NOT applied — this is expected if they're already non-static in this tree, but if this is a NEW kernel source (different repo/version than previously verified), manually confirm KernelSU actually has the symbol access it needs before trusting this build."
 fi
 
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU"

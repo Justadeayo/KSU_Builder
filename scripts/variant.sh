@@ -13,7 +13,7 @@ VARIANT="${2:?Usage: variant.sh <device> <variant>}"
 case "$VARIANT" in
     nsu) log "NSU (stock) variant — nothing to add" ;;
     ksu)
-        log "KSU variant — applying BakaSU + SuSFS"
+        log "KSU variant — applying KernelSU + SuSFS"
         bash "${SCRIPT_DIR}/ksu.sh" "$DEVICE"
         ;;
     *) die "Unknown variant '$VARIANT' — expected nsu or ksu" ;;

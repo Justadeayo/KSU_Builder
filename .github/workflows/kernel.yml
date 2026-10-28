@@ -58,7 +58,6 @@ on:
         options:
           - None
           - KernelSU
-          - ReSukiSU
         default: KernelSU
 
       BUILD_COMMIT:
@@ -173,7 +172,6 @@ jobs:
       - name: Setup KernelSU & Configure Defconfig
         run: |
           case "${{ inputs.ksu_type }}" in
-            ReSukiSU*) URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/RKSU/kernel/setup.sh" ;;
             *)         URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" ;;
           esac
           bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL"
