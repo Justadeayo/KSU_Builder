@@ -97,7 +97,7 @@ jobs:
             **KernelSU:** v3.3.1+
             **Kernel Zip:** ${{ env.ZIP_URL }}
             
-            ~by Justus26🎖️
+            ~by Justadeayo🎖️
           files: |
             release_assets/manager/*.apk
             release_assets/**/*.zip

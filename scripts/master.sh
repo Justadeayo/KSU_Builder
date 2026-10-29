@@ -11,12 +11,12 @@
 #   bash scripts/master.sh clang <clang-version> [dest-dir]
 #   bash scripts/master.sh tg-msg "<markdown text>"
 #   bash scripts/master.sh tg-doc <file> "<markdown caption>"
-#   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url>
+#   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url> [branch]
 #   bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
 #   bash scripts/master.sh fail-report <log-file> <device> <label> <start-epoch>
 #   bash scripts/master.sh prune-ccache <cache-key>
 #   bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
-#       label: KernelSU, ReSukiSU, or None/NoKSU (no root). Prints the zip name on stdout.
+#       label: KernelSU, Uni-SU, or None/NonKSU (no root). Prints the zip name on stdout.
 #
 # Environment used by the Telegram and AnyKernel3 commands:
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  optional; if unset, Telegram steps are skipped
@@ -139,7 +139,7 @@ cmd_anykernel() {
 
     # Labels that mean "no root" keep ksu_supported=false.
     case "$label" in
-        None|NoKSU|nsu) ks_flag=false ;;
+        None|NonKSU|nsu) ks_flag=false ;;
         *)              ks_flag=true ;;
     esac
 
@@ -174,18 +174,20 @@ cmd_anykernel() {
 # ---------------------------------------------------------------- ksu-setup
 # Runs a KernelSU-family setup.sh inside the kernel tree and appends the
 # options that root needs to the defconfig.
-#   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path> <setup-url>
-# ksu-type: None (does nothing), KernelSU, ReSukiSU.
+#   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path> <setup-url> [branch]
+# ksu-type: None (does nothing), KernelSU (Justadeayo/KernelSU), Uni-SU (Justadeayo/sKernelSU).
+# Optional 5th argument is the driver branch, default master.
 cmd_ksu_setup() {
     local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url>}"
     local ksu_type="${2:?ksu-type}" defconfig="${3:?defconfig path}" url="${4:?setup.sh url}"
+    local branch="${5:-master}"
 
     [ "$ksu_type" = "None" ] && { log "ksu-type None, skipping KernelSU setup."; return 0; }
 
     cd "$kdir"
     curl -LSs "$url" > setup.sh
     sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-    bash setup.sh master
+    bash setup.sh "$branch"
 
     {
         echo "CONFIG_KSU=y"
@@ -193,8 +195,8 @@ cmd_ksu_setup() {
         echo "CONFIG_KPROBE_EVENTS=y"
         echo "CONFIG_KSU_KPROBE_HOOKS=y"
         echo "CONFIG_OVERLAY_FS=y"
-        echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"
-        [ "$ksu_type" = "ReSukiSU" ] && echo "CONFIG_KSU_SUSFS=y"
+        # Needed for the KernelSU fork driver to get root on this kernel
+        [ "$ksu_type" = "KernelSU" ] && echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"
     } >> "$defconfig"
     cd - >/dev/null
     log "KernelSU (${ksu_type}) configured in ${defconfig}"

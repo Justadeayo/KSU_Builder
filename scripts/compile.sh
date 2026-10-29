@@ -37,7 +37,12 @@ LLVM_TOOLS="LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-ob
 make O="$OUT_DIR" ARCH="$KERNEL_ARCH" $LLVM_TOOLS $DEFCONFIG
 
 # Full kernel name control from builder
-./scripts/config --file "${OUT_DIR}/.config" --set-str CONFIG_LOCALVERSION "-${KERNEL_NAME}-6.0-${VARIANT}-susfs"
+# SuSFS is on only when ksu.sh wrote CONFIG_KSU_SUSFS into the fragment (nsu never does).
+SUSFS_TAG=""
+if grep -qx -e "-e CONFIG_KSU_SUSFS" "xcalibur-xf_fragments/kernelsu.config" 2>/dev/null; then
+    SUSFS_TAG="-susfs"
+fi
+./scripts/config --file "${OUT_DIR}/.config" --set-str CONFIG_LOCALVERSION "-${KERNEL_NAME}-6.0-${VARIANT}${SUSFS_TAG}"
 
 # Generic insurance: disable git-dirty auto-suffix
 export LOCALVERSION=
@@ -90,7 +95,7 @@ fi
 log "Kernel image: $IMAGE_PATH"
 
 if [ "$VARIANT" = "ksu" ]; then
-    grep -oE "(BakaSU|ReSukiSU) version name: [^ ]+" "$BUILD_LOG" | head -1 | sed -E 's/^[A-Za-z]+ version name: //' > "${WORKDIR}/${DEVICE}-bakasu-version.txt" || true
+    grep -oE "BakaSU version name: [^ ]+" "$BUILD_LOG" | head -1 | sed -E 's/^[A-Za-z]+ version name: //' > "${WORKDIR}/${DEVICE}-bakasu-version.txt" || true
     grep -oE "Supported (Unofficial )?Managers?: .*" "$BUILD_LOG" | head -1 | sed -E 's/^Supported (Unofficial )?Managers?: //; s/ +$//' > "${WORKDIR}/${DEVICE}-bakasu-managers.txt" || true
     [ -s "${WORKDIR}/${DEVICE}-bakasu-version.txt" ] || die "KSU build finished but no BakaSU version string was found in $BUILD_LOG, the version grep may be out of date"
     [ -s "${WORKDIR}/${DEVICE}-bakasu-managers.txt" ] || die "KSU build finished but no supported manager list was found in $BUILD_LOG, the grep may be out of date"
@@ -110,8 +115,15 @@ for f in dtbo.img dtb.img; do
     fi
 done
 
-DATE_TAG=$(date +%Y%m%d-%H%M)
-ZIP_NAME="xcalibur-xf-${DEVICE}-${VARIANT}-${DATE_TAG}.zip"
+# Zip name: XCalibur-XF_<device>_<driver>[_SUSFS]_<date>_<time>.zip
+case "$VARIANT" in
+    ksu) LABEL="BakaSU" ;;
+    *)   LABEL="NonKSU" ;;
+esac
+if [ -n "$SUSFS_TAG" ]; then
+    LABEL="${LABEL}_SUSFS"
+fi
+ZIP_NAME="${KERNEL_NAME}_${DEVICE}_${LABEL}_$(date +%Y%m%d_%H%M).zip"
 
 pushd "$AK3_DIR" >/dev/null
 zip -r9 "${WORKDIR}/${ZIP_NAME}" . -x ".git/*" -x "*.zip"

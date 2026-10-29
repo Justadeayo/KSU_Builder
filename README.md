@@ -24,7 +24,7 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 
 | Workflow | Trigger | Purpose | Uses master script |
 | :--- | :--- | :--- | :--- |
-| `build.yml` (Build XCalibur-XF SUSFS Kernel) | Manual | Builds violet with SUSFS in `ksu` and `nsu` variants, from the `devices/` framework | deps, Telegram |
+| `build.yml` (Build XCalibur-XF SUSFS Kernel) | Manual | Builds violet in two variants: `ksu` is BakaSU with SuSFS, `nsu` is a non-root build without SuSFS, from the `devices/` framework | deps, Telegram |
 | `build-custom.yml` (Build Custom SUSFS Kernel) | Manual | Same build as `build.yml`, but every setting can be overridden with an input | deps, Telegram |
 | `automated.yml` (Automated Build for Violet) | Manual, or called by `release.yml` | Fixed-target kernel and Manager build for violet, with Telegram delivery | deps, clang, ksu-setup, compile, fail-report, prune-ccache, Telegram, AnyKernel3 |
 | `kernel.yml` (Kernel Build (main)) | Manual | Standalone kernel build from any source. No Manager APK | deps, clang, ksu-setup, compile, fail-report, prune-ccache, Telegram, AnyKernel3 |

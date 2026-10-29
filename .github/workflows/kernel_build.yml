@@ -64,7 +64,7 @@ on:
         options:
           - None
           - KernelSU
-          - ReSukiSU
+          - Uni-SU
         default: KernelSU
 
       BUILD_COMMIT:
@@ -142,10 +142,11 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
 
-          if [[ "${{ inputs.ksu_type }}" == "ReSukiSU"* ]]; then
-            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git -b ${{ inputs.branch }} KSU_REPO
+          BRANCH="${{ inputs.branch || 'master' }}"
+          if [[ "${{ inputs.ksu_type }}" == "Uni-SU" ]]; then
+            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git -b "$BRANCH" KSU_REPO
           else
-            git clone --depth=1 https://github.com/Justadeayo/KernelSU.git -b ${{ inputs.branch }} KSU_REPO
+            git clone --depth=1 https://github.com/Justadeayo/KernelSU.git -b "$BRANCH" KSU_REPO
           fi
 
           cd KSU_REPO
@@ -181,11 +182,13 @@ jobs:
       - name: Setup KernelSU & Configure Defconfig
         run: |
           case "${{ inputs.ksu_type }}" in
-            ReSukiSU*) URL="https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/${{ inputs.branch }}/kernel/setup.sh" ;;
-            *)         URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/${{ inputs.branch }}/kernel/setup.sh" ;;
+            Uni-SU) URL="https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/${{ inputs.branch || 'master' }}/kernel/setup.sh" ;;
+            *)     URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/${{ inputs.branch || 'master' }}/kernel/setup.sh" ;;
           esac
-          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL"
+          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL" "${{ inputs.branch || 'master' }}"
       - name: Compile Kernel
+        env:
+          REQUIRE_KSU_TAMPER: ${{ inputs.ksu_type == 'KernelSU' }}
         run: |
           bash scripts/master.sh compile "${{ inputs.clang_version }}" "${{ inputs.defconfig_name }}" kernel "${GITHUB_WORKSPACE}/build.log"
       - name: Make AnyKernel3
@@ -239,7 +242,7 @@ jobs:
             ${K_NAME_UPPER}  -  K E R N E L
           =============================
 
-          *Developer*: @Justus26🪖
+          *Developer*: @Justadeayo🪖
           *Device*: \`${{ inputs.device_codename }}\`
           *Linux Ver*: \`${{ env.KERNEL_VER }}\`
           *Compiler*: \`${{ inputs.clang_version }}\`

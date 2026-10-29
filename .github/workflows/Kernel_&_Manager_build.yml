@@ -179,7 +179,12 @@ jobs:
         if: steps.cache-clang.outputs.cache-hit != 'true'
         run: |
           bash scripts/master.sh clang "${{ inputs.clang_version }}" "toolchains/${{ inputs.clang_version }}"
+      - name: Setup KernelSU & Configure Defconfig
+        run: |
+          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" master
       - name: Compile Kernel
+        env:
+          REQUIRE_KSU_TAMPER: ${{ inputs.ksu_type == 'KernelSU' }}
         run: |
           bash scripts/master.sh compile "${{ inputs.clang_version }}" "${{ inputs.defconfig_name }}" kernel "${GITHUB_WORKSPACE}/build.log"
       - name: Make AnyKernel3
@@ -261,7 +266,7 @@ jobs:
             ${K_NAME_UPPER}  -  K E R N E L
           =============================
 
-          *Developer*: @Justus26🪖
+          *Developer*: @Justadeayo🪖
           *Device*: \`${{ inputs.device_codename }}\`
           *Linux Ver*: \`${{ needs.Kernel_CI.outputs.kernel_ver }}\`
           *Compiler*: \`${{ inputs.clang_version }}\`

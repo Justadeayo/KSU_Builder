@@ -89,11 +89,11 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 | `kernel_branch` | String | Kernel branch | required |
 | `defconfig_name` | String | Defconfig path under `arch/arm64/configs/` | required |
 | `device_codename` | String | Used in the zip name and AnyKernel3 | `violet` |
-| `ksu_type` | Choice | `None`, `KernelSU`, `ReSukiSU` | `KernelSU` |
+| `ksu_type` | Choice | `None`, `KernelSU`, `Uni-SU` | `KernelSU` |
 | `BUILD_COMMIT` | String | Note added to the build message | `Synced with upstream changes 💯` |
 | `telegram_chat_id`, `telegram_bot_token` | String | Overrides for the secrets | secret fallback |
 
-- **Root choice:** `ksu_type` picks the root setup and the zip label. `ReSukiSU` uses the RKSU branch of the fork.
+- **Root choice:** `ksu_type` picks the root setup and the zip label. `KernelSU` uses `Justadeayo/KernelSU` (master). `Uni-SU` uses `Justadeayo/sKernelSU` (master), a driver compatible with several managers.
 - **Jobs:** `Kernel_CI` (build, zip, Telegram on success or failure), then `Cache_Cleanup`.
 
 ## `kernel_build.yml`: Kernel Build (extra)
@@ -101,8 +101,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 **Purpose:** a second standalone build for testing. Same inputs as `kernel.yml`, plus a KernelSU branch.
 
 - **Differences from `kernel.yml`:**
-  - `branch` input (default `master`) picks the branch of the KernelSU fork used for `setup.sh`. `ReSukiSU` uses the `sKernelSU` fork.
-  - `ReSukiSU` builds also add `CONFIG_KSU_SUSFS=y`.
+  - `branch` input (default `master`, used when left empty) picks the branch of the driver repo for both the clone and `setup.sh`. `Uni-SU` uses the `sKernelSU` fork; `KernelSU` uses the KernelSU fork.
   - Uploads a `kernel-raw-outputs` artifact with `Image`, `Image.gz`, `dtb` and `dtbo.img`.
 
 ## `Kernel_&_Manager_build.yml`: Kernel & Manager Build
