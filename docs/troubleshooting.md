@@ -26,8 +26,11 @@ The Clang toolchain and kernel source are large. The workflows set up swap space
 - A missing secret skips the Telegram steps without failing the build.
 - If Telegram rejects the Markdown, `master.sh` resends the message as plain text. If the plain send also fails, the chat ID or token is the likely cause.
 
+### Build image pull fails
+The kernel job stops before any step runs if it can't pull `ghcr.io/justadeayo/xcalibur-build-env`. Re-run the job, which is usually enough after a network drop. If it keeps failing, check that the package exists and is public, and that the Build Env Image workflow has run at least once.
+
 ### Clang downloads on every run
-GitHub caches are visible only to the branch that created them, or to the default branch. A new `clang_version` creates a new cache, so the first run after a change always downloads. Run from the same branch each time.
+Clang comes from the build image for `clang-r596125`, so it only downloads for other versions. For those, GitHub caches are visible only to the branch that created them, or to the default branch. A new `clang_version` creates a new cache, so the first run after a change always downloads. Run from the same branch each time.
 
 ### Manager APK missing in Telegram
 `build-manager` failed or was skipped (for example, `ksu_type` is `None`). Check the `Dispatch` job for the "No manager APK found" warning, then check the `build-manager` result.

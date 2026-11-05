@@ -30,10 +30,12 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     runs-on: ubuntu-22.04
+    container: ghcr.io/justadeayo/xcalibur-build-env:clang-r596125
     permissions:
       contents: write
       actions: read
       checks: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v7
@@ -55,9 +57,6 @@ jobs:
       - name: Start Time
         run: echo "BUILD_START=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Install build dependencies
-        run: |
-          bash scripts/master.sh deps
       - name: Clone Kernel Source
         run: |
           rm -rf kernel
@@ -88,17 +87,15 @@ jobs:
 
           bash scripts/master.sh tg-msg "${START_MSG}"
 
-      - name: Cache Clang Toolchain
-        id: cache-clang
-        uses: actions/cache@v4
-        with:
-          path: toolchains/${{ env.CLANG_VERSION }}
-          key: clang-${{ env.CLANG_VERSION }}
-
-      - name: Download AOSP Clang
-        if: steps.cache-clang.outputs.cache-hit != 'true'
+      - name: Prepare clang
         run: |
-          bash scripts/master.sh clang "${{ env.CLANG_VERSION }}" "toolchains/${{ env.CLANG_VERSION }}"
+          V="${{ env.CLANG_VERSION }}"
+          mkdir -p toolchains
+          if [ -x "/opt/toolchains/$V/bin/clang" ]; then
+            ln -sfn "/opt/toolchains/$V" "toolchains/$V"
+          else
+            bash scripts/master.sh clang "$V" "toolchains/$V"
+          fi
       - name: Setup KernelSU & Configure Defconfig
         run: |
           bash scripts/master.sh ksu-setup kernel KernelSU "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh"

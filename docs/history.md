@@ -28,6 +28,7 @@ Report problems through GitHub Issues. Include the workflow name, the device, th
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **2.6** | 2026-11-05 | Added `build-env.yml` and `docker/build-env/Dockerfile`. The build image `ghcr.io/justadeayo/xcalibur-build-env` holds the apt build packages (including `gcc-arm-linux-gnueabi`) and `clang-r596125`. `automated.yml`, `kernel.yml`, `kernel_build.yml` and `Kernel_&_Manager_build.yml` run their Kernel_CI job in it, which removes the apt install and default Clang download. Other Clang versions still download on the run. | `dev` |
 | **2.5** | 2026-10-28 | Added `build-custom.yml`, a standalone copy of `build.yml` with optional inputs for device, kernel source, branch, defconfig, Clang, AnyKernel3 and Telegram. Empty inputs use `devices/<device>.json`. Split the README into linked pages under `docs/`. | `dev` |
 | **2.4** | 2026-10-28 | Added `scripts/master.sh` with the shared dependency, Clang, Telegram, AnyKernel3, KernelSU setup, compile, failure-report and ccache-prune steps. Wired the kernel workflows and `build.yml` to it. Telegram sends retry as plain text when Markdown is rejected. | `dev` |
 | **2.3** | 2026-10-28 | Added `build.yml` (Build SUSFS Kernel) with `devices/*.json`, pinned `config.env` and the `scripts/` framework. Violet targets Justadeayo/android_kernel_xiaomi_violet branch `17` with a SuSFS cmdline port patch. | `dev` |
@@ -47,7 +48,7 @@ Report problems through GitHub Issues. Include the workflow name, the device, th
 
 ---
 
-**Last updated:** 2026-10-28
+**Last updated:** 2026-11-05
 **Primary branch:** `dev`
 
 [← Troubleshooting](troubleshooting.md) · [Home](../README.md)

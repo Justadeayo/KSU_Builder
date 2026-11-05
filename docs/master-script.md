@@ -23,7 +23,7 @@ bash scripts/master.sh help
 
 | Command | What it does |
 | :--- | :--- |
-| `deps` | Removes stale apt sources, then installs the build packages (one list for every workflow). |
+| `deps` | Removes stale apt sources, then installs the build packages (one list for every workflow). The build image in `docker/build-env/` installs the same list, so the kernel workflows no longer call this. `build.yml` and `build-custom.yml` still do. |
 | `clang` | Downloads and extracts a Clang version into `toolchains/<version>`. Tries the `main-kernel`, `android-14`, `android16-qpr2` and `main` googlesource refs in turn. `clang-r416183b` is cloned from LineageOS. Fails if `bin/clang` is missing afterwards. Skips the download if Clang is already there. |
 | `ksu-setup` | Runs a KernelSU or Uni-SU `setup.sh` in the kernel tree, rewrites the fork owner to Justadeayo, and appends the root options to the defconfig. `Uni-SU` is the sKernelSU driver, built without SuSFS. `None` does nothing. The caller gives the `setup.sh` URL and an optional branch (default `master`). |
 | `compile` | Exports the Clang and ccache environment, runs `make` and `olddefconfig`, and builds with the log written to the given file. With `REQUIRE_KSU_TAMPER=true` it fails when the final `.config` lost `CONFIG_KSU_TAMPER_SYSCALL_TABLE`. |
@@ -54,8 +54,8 @@ bash scripts/master.sh help
 | Workflow | Commands used |
 | :--- | :--- |
 | `build.yml`, `build-custom.yml` | `deps`, `tg-msg`, `tg-doc` |
-| `automated.yml`, `kernel.yml`, `kernel_build.yml` | `deps`, `clang`, `ksu-setup`, `compile`, `fail-report`, `prune-ccache`, `tg-msg`, `tg-doc`, `anykernel` |
-| `Kernel_&_Manager_build.yml` | `deps`, `clang`, `compile`, `fail-report`, `prune-ccache`, `tg-msg`, `tg-doc`, `anykernel` |
+| `automated.yml`, `kernel.yml`, `kernel_build.yml` | `clang` (only for a Clang version the image lacks), `ksu-setup`, `compile`, `fail-report`, `prune-ccache`, `tg-msg`, `tg-doc`, `anykernel` |
+| `Kernel_&_Manager_build.yml` | `clang` (only for a Clang version the image lacks), `compile`, `fail-report`, `prune-ccache`, `tg-msg`, `tg-doc`, `anykernel` |
 
 ## Still inline
 

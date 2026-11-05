@@ -14,6 +14,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 - [kernel.yml](#kernelyml-kernel-build-main)
 - [kernel_build.yml](#kernel_buildyml-kernel-build-extra)
 - [Kernel_&_Manager_build.yml](#kernel__manager_buildyml-kernel--manager-build)
+- [build-env.yml](#build-envyml-build-env-image)
 - [build-manager.yml](#build-manageryml-build-manager)
 - [release.yml](#releaseyml-release)
 - [sync.yml](#syncyml-sync-upstream-updates)
@@ -70,7 +71,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 - **Jobs:**
   1. `build-manager`: calls `build-manager.yml` for the Manager APK.
-  2. `Kernel_CI`: clones the kernel, runs the KernelSU `setup.sh`, adds the KSU options to the defconfig, checks they survive `olddefconfig`, compiles, and packages the zip.
+  2. `Kernel_CI`: runs in the build image. Clones the kernel, runs the KernelSU `setup.sh`, adds the KSU options to the defconfig, checks they survive `olddefconfig`, compiles, and packages the zip.
   3. `Dispatch`: waits for both jobs, then sends the kernel zip and Manager APK to Telegram.
   4. `Cache_Cleanup`: prunes old ccache entries.
 
@@ -94,7 +95,8 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 | `telegram_chat_id`, `telegram_bot_token` | String | Overrides for the secrets | secret fallback |
 
 - **Root choice:** `ksu_type` picks the root setup and the zip label. `KernelSU` uses `Justadeayo/KernelSU` (master). `Uni-SU` uses `Justadeayo/sKernelSU` (master), a driver compatible with several managers.
-- **Jobs:** `Kernel_CI` (build, zip, Telegram on success or failure), then `Cache_Cleanup`.
+- **Jobs:** `Kernel_CI` (runs in the build image; build, zip, Telegram on success or failure), then `Cache_Cleanup`.
+- **Clang:** `clang-r596125` comes from the image. Any other `clang_version` is downloaded on the run.
 
 ## `kernel_build.yml`: Kernel Build (extra)
 
@@ -110,11 +112,21 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 - **Triggers:** manual.
 - **Inputs:** the same as `kernel.yml`. The `clang_version` list also includes `clang-3289846`, `clang-r450784e` and `clang-r475365b`.
+- **Build image:** `Kernel_CI` runs in the build image, as in `kernel.yml`.
 - **Jobs:**
   1. `build-manager`: runs only when `ksu_type` is `KernelSU`.
   2. `Kernel_CI`: builds the kernel and uploads `kernel-zip`.
   3. `Dispatch`: sends the Manager APK, the kernel zip and a summary to Telegram.
   4. `Cache_Cleanup`: prunes old ccache entries.
+
+## `build-env.yml`: Build Env Image
+
+**Purpose:** builds the build image `ghcr.io/justadeayo/xcalibur-build-env:clang-r596125` from `docker/build-env/Dockerfile`. The image has the apt build packages (including `gcc-arm-linux-gnueabi`) and `clang-r596125` already extracted at `/opt/toolchains/`. The kernel workflows run inside it, so they skip the apt install and the Clang download.
+
+- **Triggers:** manual, and pushes that change `docker/build-env/**` or this file.
+- **Jobs:** `build` (Buildx build and push, with a GitHub Actions layer cache).
+- **Changing the image:** edit the Dockerfile and run the workflow. Each kernel job pulls the new image on its next run.
+- **Package visibility:** make the package public in its GHCR settings. Private packages on the free plan have only 500 MB of storage.
 
 ## `build-manager.yml`: Build Manager
 

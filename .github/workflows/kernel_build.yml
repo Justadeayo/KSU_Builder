@@ -89,10 +89,12 @@ env:
 jobs:
   Kernel_CI:
     runs-on: ubuntu-22.04
+    container: ghcr.io/justadeayo/xcalibur-build-env:clang-r596125
     permissions:
       contents: read
       actions: read
       checks: read
+      packages: read
 
     steps:
       - name: Checkout Repository
@@ -130,9 +132,6 @@ jobs:
       - name: Start Time
         run: echo "BUILD_START=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Install build dependencies
-        run: |
-          bash scripts/master.sh deps
       - name: Clone Kernel Source
         run: |
           rm -rf kernel
@@ -168,17 +167,15 @@ jobs:
 
           bash scripts/master.sh tg-msg "${START_MSG}"
 
-      - name: Cache Clang Toolchain
-        id: cache-clang
-        uses: actions/cache@v4
-        with:
-          path: toolchains/${{ inputs.clang_version }}
-          key: clang-${{ inputs.clang_version }}
-
-      - name: Download AOSP Clang
-        if: steps.cache-clang.outputs.cache-hit != 'true'
+      - name: Prepare clang
         run: |
-          bash scripts/master.sh clang "${{ inputs.clang_version }}" "toolchains/${{ inputs.clang_version }}"
+          V="${{ inputs.clang_version }}"
+          mkdir -p toolchains
+          if [ -x "/opt/toolchains/$V/bin/clang" ]; then
+            ln -sfn "/opt/toolchains/$V" "toolchains/$V"
+          else
+            bash scripts/master.sh clang "$V" "toolchains/$V"
+          fi
       - name: Setup KernelSU & Configure Defconfig
         run: |
           case "${{ inputs.ksu_type }}" in
