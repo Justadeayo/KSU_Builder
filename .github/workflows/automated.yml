@@ -30,7 +30,12 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     runs-on: ubuntu-24.04
-    container: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
+    container:
+      image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
+      options: --cap-add=SYS_ADMIN
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: write
       actions: read

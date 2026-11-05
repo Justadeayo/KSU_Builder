@@ -83,7 +83,12 @@ env:
 jobs:
   Kernel_CI:
     runs-on: ubuntu-24.04
-    container: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
+    container:
+      image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
+      options: --cap-add=SYS_ADMIN
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       actions: read

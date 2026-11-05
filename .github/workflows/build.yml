@@ -18,7 +18,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    container: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
+    container:
+      image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
+      options: --cap-add=SYS_ADMIN
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       packages: read
@@ -36,11 +41,12 @@ jobs:
           path: builder
 
       - name: Set up swap space
-        uses: pierotofy/set-swap-space@49819abfb41bd9b44fb781159c033dba90353a7c  # v1.0
-        with:
-          swap-size-gb: 10
         continue-on-error: true
-
+        run: |
+          sudo fallocate -l 10G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=10240
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
       - name: Read device config
         id: devcfg
         run: |
