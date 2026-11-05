@@ -130,9 +130,9 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ## `build-manager.yml`: Build Manager
 
-**Purpose:** builds the KernelSU Manager APK and the `ksud` binaries. Other workflows call it. It also runs on push to the listed branches.
+**Purpose:** builds the KernelSU Manager APK and the `ksud` binaries. Other workflows call it. Pushes do not start it.
 
-- **Triggers:** push to `main`, `dev`, `ci`, `test`, `staging`; `workflow_call`; `workflow_dispatch`.
+- **Triggers:** `workflow_call` (from `automated.yml`); `workflow_dispatch`.
 - **Jobs:**
   1. `generate-key`: makes a temporary keystore for PR builds.
   2. `build-ksud`: builds `ksud` for `aarch64-linux-android`, `armv7-linux-androideabi` and `x86_64-linux-android` with NDK r29.
