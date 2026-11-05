@@ -121,7 +121,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ## `build-env.yml`: Build Env Image
 
-**Purpose:** builds the build image `ghcr.io/justadeayo/xcalibur-build-env:clang-r596125` from `docker/build-env/Dockerfile`. The image has the apt build packages (including `gcc-arm-linux-gnueabi`) and `clang-r596125` already extracted at `/opt/toolchains/`. The kernel workflows run inside it, so they skip the apt install and the Clang download.
+**Purpose:** builds the build image `ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125` from `docker/build-env/Dockerfile`. The image has the apt build packages (including `gcc-arm-linux-gnueabi`) and `clang-r596125` already extracted at `/opt/toolchains/`. The kernel workflows run inside it, so they skip the apt install and the Clang download.
 
 - **Triggers:** manual, and pushes that change `docker/build-env/**` or this file.
 - **Jobs:** `build` (Buildx build and push, with a GitHub Actions layer cache).

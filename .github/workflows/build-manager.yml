@@ -17,7 +17,7 @@ on:
 
 jobs:
   generate-key:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       expected_size: ${{ steps.extract.outputs.expected_size }}
       expected_hash: ${{ steps.extract.outputs.expected_hash }}

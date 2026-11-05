@@ -28,6 +28,7 @@ Report problems through GitHub Issues. Include the workflow name, the device, th
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **2.7** | 2026-11-05 | Build image moved to Ubuntu 24.04 (`ubuntu-24.04-clang-r596125`), and every workflow now runs on `ubuntu-24.04`. `build.yml` and `build-custom.yml` run in the image and link its Clang, dropping their apt install and toolchain cache. The image includes `sudo`, and the swap step no longer fails the build when swap can't be set up. | `dev` |
 | **2.6** | 2026-11-05 | Added `build-env.yml` and `docker/build-env/Dockerfile`. The build image `ghcr.io/justadeayo/xcalibur-build-env` holds the apt build packages (including `gcc-arm-linux-gnueabi`) and `clang-r596125`. `automated.yml`, `kernel.yml`, `kernel_build.yml` and `Kernel_&_Manager_build.yml` run their Kernel_CI job in it, which removes the apt install and default Clang download. Other Clang versions still download on the run. | `dev` |
 | **2.5** | 2026-10-28 | Added `build-custom.yml`, a standalone copy of `build.yml` with optional inputs for device, kernel source, branch, defconfig, Clang, AnyKernel3 and Telegram. Empty inputs use `devices/<device>.json`. Split the README into linked pages under `docs/`. | `dev` |
 | **2.4** | 2026-10-28 | Added `scripts/master.sh` with the shared dependency, Clang, Telegram, AnyKernel3, KernelSU setup, compile, failure-report and ccache-prune steps. Wired the kernel workflows and `build.yml` to it. Telegram sends retry as plain text when Markdown is rejected. | `dev` |

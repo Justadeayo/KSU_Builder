@@ -82,6 +82,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    container: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -100,12 +104,7 @@ jobs:
         uses: pierotofy/set-swap-space@49819abfb41bd9b44fb781159c033dba90353a7c  # v1.0
         with:
           swap-size-gb: 10
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc cpio flex bison libssl-dev \
-            libelf-dev dwarves zip curl git python3 rsync jq ccache
+        continue-on-error: true
 
       - name: Resolve device config (inputs over JSON)
         id: devcfg
@@ -165,12 +164,13 @@ jobs:
           git clone --depth 1 -b "${{ steps.devcfg.outputs.kernel_branch }}" \
             "${{ steps.devcfg.outputs.kernel_repo }}" kernel_src
 
-      - name: Cache toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: kernel_src/toolchain/clang-${{ steps.devcfg.outputs.clang_version }}
-          key: toolchain-clang-${{ steps.devcfg.outputs.clang_version }}
-
+      - name: Link preinstalled clang
+        run: |
+          V="clang-${{ steps.devcfg.outputs.clang_version }}"
+          mkdir -p kernel_src/toolchain
+          if [ -x "/opt/toolchains/$V/bin/clang" ]; then
+            ln -sfn "/opt/toolchains/$V" "kernel_src/toolchain/$V"
+          fi
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d  # v1.2.24
         with:

@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ARG CLANG_VERSION=clang-r596125
 ENV DEBIAN_FRONTEND=noninteractive
@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       bc bison flex cpio dwarves zip rsync jq ccache \
-      build-essential git python3 curl ca-certificates lz4 lld \
+      build-essential git python3 curl ca-certificates lz4 lld sudo \
       libssl-dev libelf-dev libdw-dev \
       gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
  && rm -rf /var/lib/apt/lists/*

@@ -17,7 +17,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +34,6 @@ jobs:
           context: docker/build-env
           push: true
           build-args: CLANG_VERSION=${{ env.CLANG_VERSION }}
-          tags: ${{ env.IMAGE }}:${{ env.CLANG_VERSION }}
+          tags: ${{ env.IMAGE }}:ubuntu-24.04-${{ env.CLANG_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

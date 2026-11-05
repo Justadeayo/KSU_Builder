@@ -24,8 +24,8 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 
 | Workflow | Trigger | Purpose | Uses master script |
 | :--- | :--- | :--- | :--- |
-| `build.yml` (Build XCalibur-XF SUSFS Kernel) | Manual | Builds violet in two variants: `ksu` is BakaSU with SuSFS, `nsu` is a non-root build without SuSFS, from the `devices/` framework | deps, Telegram |
-| `build-custom.yml` (Build Custom SUSFS Kernel) | Manual | Same build as `build.yml`, but every setting can be overridden with an input | deps, Telegram |
+| `build.yml` (Build XCalibur-XF SUSFS Kernel) | Manual | Builds violet in two variants: `ksu` is BakaSU with SuSFS, `nsu` is a non-root build without SuSFS, from the `devices/` framework | build image, Telegram |
+| `build-custom.yml` (Build Custom SUSFS Kernel) | Manual | Same build as `build.yml`, but every setting can be overridden with an input | build image, Telegram |
 | `build-env.yml` (Build Env Image) | Manual; on changes to `docker/build-env/` or this file | Builds and pushes the build image with the apt packages and `clang-r596125` preinstalled | none (Dockerfile) |
 | `automated.yml` (Automated Build for Violet) | Manual, or called by `release.yml` | Fixed-target kernel and Manager build for violet, with Telegram delivery | build image, clang (fallback), ksu-setup, compile, fail-report, prune-ccache, Telegram, AnyKernel3 |
 | `kernel.yml` (Kernel Build (main)) | Manual | Standalone kernel build from any source. No Manager APK | build image, clang (fallback), ksu-setup, compile, fail-report, prune-ccache, Telegram, AnyKernel3 |

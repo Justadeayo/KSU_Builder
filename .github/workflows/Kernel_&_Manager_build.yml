@@ -91,8 +91,8 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
 
   Kernel_CI:
-    runs-on: ubuntu-22.04
-    container: ghcr.io/justadeayo/xcalibur-build-env:clang-r596125
+    runs-on: ubuntu-24.04
+    container: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
     permissions:
       contents: read
       actions: read
@@ -126,6 +126,7 @@ jobs:
 
       - name: Setup SWAP
         uses: pierotofy/set-swap-space@master
+        continue-on-error: true
         with:
           swap-size-gb: 16
 
@@ -211,7 +212,7 @@ jobs:
       - build-manager
       - Kernel_CI
     if: ${{ !cancelled() && needs.Kernel_CI.result == 'success' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read
@@ -277,7 +278,7 @@ jobs:
   Cache_Cleanup:
     needs: Kernel_CI
     if: ${{ needs.Kernel_CI.result == 'success' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
     env:
