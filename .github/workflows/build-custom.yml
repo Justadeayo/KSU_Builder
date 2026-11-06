@@ -177,12 +177,11 @@ jobs:
           if [ -x "/opt/toolchains/$V/bin/clang" ]; then
             ln -sfn "/opt/toolchains/$V" "kernel_src/toolchain/$V"
           fi
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d  # v1.2.24
+      - name: Restore ccache
+        uses: ./builder/.github/actions/ccache-restore
         with:
-          key: ccache-${{ env.DEVICE }}-${{ matrix.variant }}
-          max-size: 2G
-          create-symlink: false
+          device: ${{ env.DEVICE }}
+          branch: ${{ steps.devcfg.outputs.kernel_branch }}
 
       - name: Stage builder files into kernel source
         run: |
@@ -296,6 +295,14 @@ jobs:
           else
             bash builder/scripts/master.sh tg-msg "$MSG"
           fi
+
+      - name: Save ccache
+        if: always()
+        uses: ./builder/.github/actions/ccache-save
+        with:
+          device: ${{ env.DEVICE }}
+          branch: ${{ steps.devcfg.outputs.kernel_branch }}
+          suffix: -${{ matrix.variant }}
 
   release:
     needs: build

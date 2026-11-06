@@ -1,0 +1,26 @@
+name: Restore kernel ccache
+description: Restore the newest shared kernel ccache for a device and kernel branch, and set the ccache environment.
+inputs:
+  device:
+    description: Device codename, for example violet
+    required: true
+  branch:
+    description: Kernel branch, for example 17
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache/restore@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ inputs.device }}-${{ inputs.branch }}-restore-${{ github.run_id }}
+        restore-keys: |
+          ccache-${{ inputs.device }}-${{ inputs.branch }}-
+    - shell: bash
+      run: |
+        {
+          echo "CCACHE_DIR=$HOME/.ccache"
+          echo "CCACHE_MAXSIZE=5G"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+          echo "CCACHE_NOHASHDIR=1"
+        } >> "$GITHUB_ENV"

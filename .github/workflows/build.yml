@@ -70,12 +70,11 @@ jobs:
           if [ -x "/opt/toolchains/$V/bin/clang" ]; then
             ln -sfn "/opt/toolchains/$V" "kernel_src/toolchain/$V"
           fi
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d  # v1.2.24
+      - name: Restore ccache
+        uses: ./builder/.github/actions/ccache-restore
         with:
-          key: ccache-violet-${{ matrix.variant }}
-          max-size: 2G
-          create-symlink: false
+          device: violet
+          branch: ${{ steps.devcfg.outputs.kernel_branch }}
 
       - name: Stage builder files into kernel source
         run: |
@@ -194,6 +193,14 @@ jobs:
           else
             bash ../builder/scripts/master.sh tg-msg "$MSG"
           fi
+      - name: Save ccache
+        if: always()
+        uses: ./builder/.github/actions/ccache-save
+        with:
+          device: violet
+          branch: ${{ steps.devcfg.outputs.kernel_branch }}
+          suffix: -${{ matrix.variant }}
+
   release:
     needs: build
     if: ${{ inputs.create_release }}
@@ -240,3 +247,19 @@ jobs:
             --title "XCalibur-XF violet - ${DATE}" \
             --notes-file release_notes.md \
             final/*.zip
+
+  Cache_Cleanup:
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: builder
+
+      - name: Prune old ccache entries
+        run: bash builder/scripts/master.sh prune-ccache "ccache-violet-17-"

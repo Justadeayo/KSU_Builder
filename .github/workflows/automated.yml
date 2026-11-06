@@ -54,11 +54,11 @@ jobs:
         with:
           swap-size-gb: 16
 
-      - name: Setup CCache
-        uses: hendrikmuhs/ccache-action@v1.2
+      - name: Restore ccache
+        uses: ./.github/actions/ccache-restore
         with:
-          key: kernel-${{ env.DEVICE_CODENAME }}
-          max-size: 5G
+          device: ${{ env.DEVICE_CODENAME }}
+          branch: ${{ env.KERNEL_BRANCH }}
 
       - name: Start Time
         run: echo "BUILD_START=$(date +%s)" >> $GITHUB_ENV
@@ -109,7 +109,11 @@ jobs:
         env:
           REQUIRE_KSU_TAMPER: true
         run: |
+          export CCACHE_DIR="$HOME/.ccache" CCACHE_MAXSIZE=5G CCACHE_BASEDIR="$GITHUB_WORKSPACE" CCACHE_NOHASHDIR=1
           bash scripts/master.sh compile "${{ env.CLANG_VERSION }}" "${{ env.DEFCONFIG_NAME }}" kernel "${GITHUB_WORKSPACE}/build.log"
+      - name: ccache stats
+        if: always()
+        run: CCACHE_DIR="$HOME/.ccache" ccache -s || true
       - name: Make AnyKernel3
         run: |
           ZIP=$(bash scripts/master.sh anykernel "kernel/out/arch/arm64/boot" "${{ env.KERNEL_NAME }}" "${{ env.DEVICE_CODENAME }}" "KernelSU" "toolchains/${{ env.CLANG_VERSION }}/bin")
@@ -124,6 +128,13 @@ jobs:
         if: failure()
         run: |
           bash scripts/master.sh fail-report "${GITHUB_WORKSPACE}/build.log" "${{ env.DEVICE_CODENAME }}" "KernelSU" "${BUILD_START:-0}"
+      - name: Save ccache
+        if: always()
+        uses: ./.github/actions/ccache-save
+        with:
+          device: ${{ env.DEVICE_CODENAME }}
+          branch: ${{ env.KERNEL_BRANCH }}
+
   Dispatch:
     needs:
       - build-manager
@@ -187,4 +198,4 @@ jobs:
 
       - name: Prune old ccache entries
         run: |
-          bash scripts/master.sh prune-ccache "ccache-kernel-${{ env.DEVICE_CODENAME }}"
+          bash scripts/master.sh prune-ccache "ccache-${{ env.DEVICE_CODENAME }}-${{ env.KERNEL_BRANCH }}-"

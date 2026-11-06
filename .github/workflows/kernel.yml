@@ -123,11 +123,11 @@ jobs:
         with:
           swap-size-gb: 16
 
-      - name: Setup CCache
-        uses: hendrikmuhs/ccache-action@v1.2
+      - name: Restore ccache
+        uses: ./.github/actions/ccache-restore
         with:
-          key: kernel-${{ inputs.device_codename }}
-          max-size: 5G
+          device: ${{ inputs.device_codename }}
+          branch: ${{ inputs.kernel_branch }}
 
       - name: Start Time
         run: echo "BUILD_START=$(date +%s)" >> $GITHUB_ENV
@@ -186,7 +186,11 @@ jobs:
         env:
           REQUIRE_KSU_TAMPER: ${{ inputs.ksu_type == 'KernelSU' }}
         run: |
+          export CCACHE_DIR="$HOME/.ccache" CCACHE_MAXSIZE=5G CCACHE_BASEDIR="$GITHUB_WORKSPACE" CCACHE_NOHASHDIR=1
           bash scripts/master.sh compile "${{ inputs.clang_version }}" "${{ inputs.defconfig_name }}" kernel "${GITHUB_WORKSPACE}/build.log"
+      - name: ccache stats
+        if: always()
+        run: CCACHE_DIR="$HOME/.ccache" ccache -s || true
       - name: Make AnyKernel3
         run: |
           ZIP=$(bash scripts/master.sh anykernel "kernel/out/arch/arm64/boot" "${{ inputs.kernel_name }}" "${{ inputs.device_codename }}" "${{ inputs.ksu_type }}" "toolchains/${{ inputs.clang_version }}/bin")
@@ -236,6 +240,13 @@ jobs:
         if: failure()
         run: |
           bash scripts/master.sh fail-report "${GITHUB_WORKSPACE}/build.log" "${{ inputs.device_codename }}" "${{ inputs.ksu_type }}" "${BUILD_START:-0}"
+      - name: Save ccache
+        if: always()
+        uses: ./.github/actions/ccache-save
+        with:
+          device: ${{ inputs.device_codename }}
+          branch: ${{ inputs.kernel_branch }}
+
   Cache_Cleanup:
     needs: Kernel_CI
     if: ${{ needs.Kernel_CI.result == 'success' }}
@@ -249,4 +260,4 @@ jobs:
 
       - name: Prune old ccache entries
         run: |
-          bash scripts/master.sh prune-ccache "ccache-kernel-${{ inputs.device_codename }}"
+          bash scripts/master.sh prune-ccache "ccache-${{ inputs.device_codename }}-${{ inputs.kernel_branch }}-"
