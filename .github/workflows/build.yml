@@ -6,6 +6,11 @@ name: Build XCalibur-XF SUSFS Kernel (violet)
 on:
   workflow_dispatch:
     inputs:
+      build_nonksu:
+        description: "Also build the non-KSU variant (nsu)"
+        required: false
+        type: boolean
+        default: false
       create_release:
         description: "Create a GitHub Release after build"
         required: true
@@ -16,7 +21,30 @@ permissions:
   contents: read
 
 jobs:
+  notify_start:
+    runs-on: ubuntu-24.04
+    outputs:
+      epoch: ${{ steps.start.outputs.epoch }}
+      variants: ${{ steps.plan.outputs.variants }}
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: builder
+      - id: plan
+        run: |
+          if [ "${{ inputs.build_nonksu }}" = "true" ]; then
+            echo 'variants=["ksu","nsu"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'variants=["ksu"]' >> "$GITHUB_OUTPUT"
+          fi
+      - id: start
+        run: echo "epoch=$(bash builder/scripts/notify.sh start 'violet' 'XCalibur-XF' '${{ inputs.build_nonksu && 'BakaSU + non-KSU' || 'BakaSU' }}' 'clang-r596125')" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: notify_start
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
@@ -30,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [ksu, nsu]
+        variant: ${{ fromJSON(needs.notify_start.outputs.variants) }}
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -159,40 +187,6 @@ jobs:
             kernel_src/violet-bakasu-managers.txt
           if-no-files-found: error
 
-      - name: Send flashable zip to Telegram
-        if: success()
-        working-directory: kernel_src
-        run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "::notice::Telegram secrets not set, skipping."
-            exit 0
-          fi
-          ZIP=$(ls XCalibur-XF_*.zip | head -1)
-          CAPTION="*XCalibur-XF build ✅*
-          
-          *Device*: \`violet\`
-          *Variant*: \`${{ matrix.variant }}\`
-          *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          bash ../builder/scripts/master.sh tg-doc "$ZIP" "$CAPTION"
-      - name: Send failure report to Telegram
-        if: failure()
-        working-directory: kernel_src
-        run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            exit 0
-          fi
-          MSG="*XCalibur-XF build failed ❌*
-          
-          *Device*: \`violet\`
-          *Variant*: \`${{ matrix.variant }}\`
-          *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "violet-${{ matrix.variant }}-build.log" ]; then
-            tail -n 35 "violet-${{ matrix.variant }}-build.log" > ../error_preview.txt
-            zip -j ../error_logs.zip "violet-${{ matrix.variant }}-build.log" ../error_preview.txt
-            bash ../builder/scripts/master.sh tg-doc ../error_logs.zip "$MSG"
-          else
-            bash ../builder/scripts/master.sh tg-msg "$MSG"
-          fi
       - name: Save ccache
         if: always()
         uses: ./builder/.github/actions/ccache-save
@@ -200,6 +194,26 @@ jobs:
           device: violet
           branch: ${{ steps.devcfg.outputs.kernel_branch }}
           suffix: -${{ matrix.variant }}
+
+  notify_finish:
+    needs:
+      - notify_start
+      - build
+    runs-on: ubuntu-24.04
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: builder
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: xcalibur-xf-violet-*
+          path: zips
+      - name: Notify finish
+        run: |
+          bash builder/scripts/notify.sh finish 'violet' 'XCalibur-XF' 'clang-r596125' "${{ needs.notify_start.outputs.epoch }}" 'zips/xcalibur-xf-violet-ksu/*.zip:BakaSU' 'zips/xcalibur-xf-violet-nsu/*.zip:non-KSU'
 
   release:
     needs: build

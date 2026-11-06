@@ -24,7 +24,7 @@ The Clang toolchain and kernel source are large. The workflows set up swap space
 ### Telegram messages don't arrive
 - The bot token or chat ID is missing or wrong. Check the secrets.
 - A missing secret skips the Telegram steps without failing the build.
-- If Telegram rejects the Markdown, `master.sh` resends the message as plain text. If the plain send also fails, the chat ID or token is the likely cause.
+- If Telegram rejects the Markdown, `notify.sh` resends the message as plain text. If the plain send also fails, the chat ID or token is the likely cause.
 
 ### Build image pull fails
 The kernel job stops before any step runs if it can't pull `ghcr.io/justadeayo/xcalibur-build-env`. Re-run the job, which is usually enough after a network drop. If it keeps failing, check that the package exists and is public, and that the Build Env Image workflow has run at least once.

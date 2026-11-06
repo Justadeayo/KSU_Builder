@@ -23,7 +23,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ## `build.yml`: Build XCalibur-XF SUSFS Kernel
 
-**Purpose:** build violet with SUSFS in `ksu` and `nsu` variants, using the pinned framework in `scripts/` and `devices/`. Sends the flashable zip to Telegram.
+**Purpose:** build violet with SUSFS in `ksu` and `nsu` variants, using the pinned framework in `scripts/` and `devices/`. Sends one start message, then one finish message with the zips once every selected variant succeeds.
 
 - **Triggers:** manual.
 - **Inputs:** `create_release` (default `false`) creates a GitHub Release after the build.
@@ -55,7 +55,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ## `automated.yml`: Automated Build for Violet
 
-**Purpose:** a fixed-target build for violet. It builds the kernel and the companion Manager APK in parallel, then sends both to Telegram. `release.yml` calls it.
+**Purpose:** a fixed-target build for violet. It builds the kernel and the companion Manager APK in parallel, then sends one start and one finish message. `release.yml` calls it.
 
 - **Triggers:** manual, or called by `release.yml`.
 - **Defaults:**
@@ -73,7 +73,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
   1. `sync`: calls `sync.yml` to align `Justadeayo/KernelSU` with upstream. Takes about 15 seconds.
   2. `build-manager`: waits for `sync`, then calls `build-manager.yml` for the Manager APK from the synced source.
   3. `Kernel_CI`: runs in the build image, in parallel with `sync` and `build-manager`. Clones the kernel, runs the KernelSU `setup.sh`, adds the KSU options to the defconfig, checks they survive `olddefconfig`, compiles, and packages the zip.
-  4. `Dispatch`: waits for both jobs, then sends the kernel zip and Manager APK to Telegram.
+  4. `Dispatch`: waits for both jobs, then sends the finish message with the kernel zip and Manager APK.
   5. `Cache_Cleanup`: prunes old ccache entries.
 
 ## `kernel.yml`: Kernel Build (main)
@@ -96,7 +96,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 | `telegram_chat_id`, `telegram_bot_token` | String | Overrides for the secrets | secret fallback |
 
 - **Root choice:** `ksu_type` picks the root setup and the zip label. `KernelSU` uses `Justadeayo/KernelSU` (master). `Uni-SU` uses `Justadeayo/sKernelSU` (master), a driver compatible with several managers.
-- **Jobs:** `Kernel_CI` (runs in the build image; build, zip, Telegram on success or failure), then `Cache_Cleanup`.
+- **Jobs:** `Kernel_CI` (runs in the build image; build and zip), then `Cache_Cleanup`.
 - **Clang:** `clang-r596125` comes from the image. Any other `clang_version` is downloaded on the run.
 
 ## `kernel_build.yml`: Kernel Build (extra)
@@ -109,7 +109,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ## `Kernel_&_Manager_build.yml`: Kernel & Manager Build
 
-**Purpose:** the full custom build. Takes any kernel source, builds the kernel and the Manager APK, and sends both to Telegram.
+**Purpose:** the full custom build. Takes any kernel source, builds the kernel and the Manager APK, and sends one start and one finish message.
 
 - **Triggers:** manual.
 - **Inputs:** the same as `kernel.yml`. The `clang_version` list also includes `clang-3289846`, `clang-r450784e` and `clang-r475365b`.
@@ -117,7 +117,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 - **Jobs:**
   1. `build-manager`: runs only when `ksu_type` is `KernelSU`.
   2. `Kernel_CI`: builds the kernel and uploads `kernel-zip`.
-  3. `Dispatch`: sends the Manager APK, the kernel zip and a summary to Telegram.
+  3. `Dispatch`: sends the finish message with the Manager APK and the kernel zip.
   4. `Cache_Cleanup`: prunes old ccache entries.
 
 ## `build-env.yml`: Build Env Image
@@ -151,7 +151,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
   1. `build`: calls `automated.yml`.
   2. `release`: works out the tag and publishes every `.apk` and `.zip`.
 - Manual runs use a version tag such as `v3.3.1-<number>`.
-- The Telegram messages come from `automated.yml`, not from this workflow.
+- This workflow sends no Telegram messages.
 
 ## `sync.yml`: Sync Upstream Updates
 
@@ -159,7 +159,7 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 - **Triggers:** called by `automated.yml` at the start of each run, or run by hand. The daily schedule was removed.
 - **Input:** `trigger_release` (default `false`) starts `release.yml` on `Justadeayo/KSU_Builder` (`dev`) after a successful sync. Calls from `automated.yml` never set it.
-- **Behavior:** compares `master` with upstream. If there are new commits, it resets to upstream and force-pushes, then sends a Telegram notice.
+- **Behavior:** compares `master` with upstream. If there are new commits, it resets to upstream and force-pushes. It sends no Telegram message.
 - **Manual runs start a release only if `trigger_release` is set.**
 
 ---

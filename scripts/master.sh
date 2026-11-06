@@ -2,27 +2,21 @@
 # scripts/master.sh
 #
 # One place for the steps every KSU_Builder workflow repeats:
-# build dependencies, the AOSP Clang toolchain, Telegram messages and
-# AnyKernel3 packaging. Workflows call this file instead of carrying
+# build dependencies, the AOSP Clang toolchain, ccache pruning and
+# AnyKernel3 packaging. Telegram messages live in scripts/notify.sh. Workflows call this file instead of carrying
 # their own copy.
 #
 # Usage (from the repository root, after checkout):
 #   bash scripts/master.sh deps
 #   bash scripts/master.sh clang <clang-version> [dest-dir]
-#   bash scripts/master.sh tg-msg "<markdown text>"
-#   bash scripts/master.sh tg-doc <file> "<markdown caption>"
 #   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url> [branch]
 #   bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
-#   bash scripts/master.sh fail-report <log-file> <device> <label> <start-epoch>
 #   bash scripts/master.sh prune-ccache <cache-key>
 #   bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
 #       label: KernelSU, Uni-SU, or None/NonKSU (no root). Prints the zip name on stdout.
 #
-# Environment used by the Telegram and AnyKernel3 commands:
-#   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  optional; if unset, Telegram steps are skipped
 #   AK3_REPO, AK3_BRANCH                  optional; default Justadeayo/AnyKernel3 master
 #
-# Failures in Telegram delivery never fail a build.
 
 set -euo pipefail
 
@@ -81,52 +75,6 @@ cmd_clang() {
 
     [ -x "${dest}/bin/clang" ] || die "clang binary missing after fetching ${ver}"
     log "clang ${ver} ready at ${dest}"
-}
-
-# ---------------------------------------------------------------- telegram
-tg_enabled() {
-    if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-        log "Telegram secrets not set, skipping Telegram step."
-        return 1
-    fi
-}
-
-# Telegram rejects Markdown it can't parse (an unpaired "_" in a repo name,
-# for example), so every send retries once as plain text.
-cmd_tg_msg() {
-    local text="${1:?usage: tg-msg \"<text>\"}"
-    tg_enabled || return 0
-    local url="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
-    if ! curl -sf -X POST "$url" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            -d "disable_web_page_preview=true" \
-            --data-urlencode "text=${text}" >/dev/null; then
-        warn "Markdown rejected, resending as plain text."
-        curl -sf -X POST "$url" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "disable_web_page_preview=true" \
-            --data-urlencode "text=${text}" >/dev/null || warn "Telegram message failed (not fatal)."
-    fi
-}
-
-cmd_tg_doc() {
-    local file="${1:?usage: tg-doc <file> \"<caption>\">}"
-    local caption="${2:-}"
-    tg_enabled || return 0
-    [ -f "$file" ] || { warn "tg-doc: ${file} not found, sending text instead."; cmd_tg_msg "$caption"; return 0; }
-    local url="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
-    if ! curl -sf -X POST "$url" \
-            -F "chat_id=${TELEGRAM_CHAT_ID}" \
-            -F "parse_mode=Markdown" \
-            --form-string "caption=${caption}" \
-            -F "document=@${file}" >/dev/null; then
-        warn "Markdown caption rejected, resending without formatting."
-        curl -sf -X POST "$url" \
-            -F "chat_id=${TELEGRAM_CHAT_ID}" \
-            --form-string "caption=${caption}" \
-            -F "document=@${file}" >/dev/null || warn "Telegram document failed (not fatal)."
-    fi
 }
 
 # ---------------------------------------------------------------- anykernel
@@ -243,35 +191,6 @@ cmd_compile() {
     log "kernel built"
 }
 
-# ---------------------------------------------------------------- fail-report
-# Sends a failure message with the tail of the build log attached.
-#   fail-report <log-file> <device> <variant-label> <start-epoch>
-cmd_fail_report() {
-    local logf="${1:?usage: fail-report <log> <device> <label> <start-epoch>}"
-    local device="${2:-?}" label="${3:-?}" start="${4:-0}"
-    local now dur mins secs msg
-    now=$(date +%s)
-    dur=$(( start > 0 ? now - start : 0 ))
-    mins=$(( dur / 60 )); secs=$(( dur % 60 ))
-
-    msg="*Build Failed!* ❌
-
-*Device*: \`${device}\`
-*Variant*: \`${label}\`
-*Duration*: \`${mins}m ${secs}s\`
-*Run Link*: https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-0}"
-
-    if [ -f "$logf" ]; then
-        local preview="${RUNNER_TEMP:-/tmp}/error_preview.txt" zipf="${RUNNER_TEMP:-/tmp}/error_logs.zip"
-        tail -n 35 "$logf" > "$preview"
-        rm -f "$zipf"
-        zip -j "$zipf" "$logf" "$preview" >/dev/null
-        cmd_tg_doc "$zipf" "$msg"
-    else
-        cmd_tg_msg "$msg"
-    fi
-}
-
 # ---------------------------------------------------------------- prune-ccache
 # Keeps the newest ccache entry for a key and deletes the rest.
 #   prune-ccache <cache-key-prefix>
@@ -287,12 +206,9 @@ cmd_prune_ccache() {
 case "${1:-}" in
     deps)      shift; cmd_deps "$@" ;;
     clang)     shift; cmd_clang "$@" ;;
-    tg-msg)    shift; cmd_tg_msg "$@" ;;
-    tg-doc)    shift; cmd_tg_doc "$@" ;;
     anykernel) shift; cmd_anykernel "$@" ;;
     ksu-setup) shift; cmd_ksu_setup "$@" ;;
     compile)   shift; cmd_compile "$@" ;;
-    fail-report) shift; cmd_fail_report "$@" ;;
     prune-ccache) shift; cmd_prune_ccache "$@" ;;
     ""|-h|--help|help)
         sed -n '2,20p' "${BASH_SOURCE[0]}" ;;

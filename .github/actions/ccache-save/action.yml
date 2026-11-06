@@ -1,20 +1,26 @@
-name: Save kernel ccache
-description: "Save the kernel ccache under a unique key. Run it last with if: always(), then prune to the newest entry."
+name: Save ccache
+description: Save the shared ccache directory for a device and kernel branch
+
 inputs:
   device:
-    description: Device codename, for example violet
+    description: Device codename
     required: true
   branch:
-    description: Kernel branch, for example 17
+    description: Kernel branch
     required: true
   suffix:
-    description: Optional suffix to keep matrix jobs apart
+    description: Optional key suffix
     required: false
     default: ""
+  path:
+    description: ccache directory inside the job container
+    required: false
+    default: /github/home/.ccache
+
 runs:
   using: composite
   steps:
     - uses: actions/cache/save@v4
       with:
-        path: ~/.ccache
+        path: ${{ inputs.path }}
         key: ccache-${{ inputs.device }}-${{ inputs.branch }}-${{ github.run_id }}${{ inputs.suffix }}

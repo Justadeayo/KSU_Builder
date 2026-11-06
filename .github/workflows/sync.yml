@@ -63,26 +63,6 @@ jobs:
         run: |
           git push origin master --force
 
-      - name: Send merge notification to Telegram
-        if: env.SYNC_NEEDED == 'true'
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RAW_MSG=$(git log -1 --pretty=%s)
-          FULL_TEXT="✅ *Sync Complete with Upstream Changes:*
-          $RAW_MSG"
-          
-          python3 -c "
-          import os, urllib.parse, urllib.request
-          token = os.environ['TELEGRAM_BOT_TOKEN']
-          chat_id = os.environ['TELEGRAM_CHAT_ID']
-          text = '''$FULL_TEXT'''
-          url = f'https://api.telegram.org/bot{token}/sendMessage'
-          data = urllib.parse.urlencode({'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}).encode('utf-8')
-          urllib.request.urlopen(url, data=data)
-          "
-
       - name: Trigger Release Workflow for Violet
         if: env.SYNC_NEEDED == 'true' && inputs.trigger_release == true
         run: |
