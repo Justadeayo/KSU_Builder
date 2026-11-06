@@ -31,12 +31,25 @@ jobs:
     needs: sync
     uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
 
+  notify_start:
+    runs-on: ubuntu-24.04
+    outputs:
+      epoch: ${{ steps.start.outputs.epoch }}
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: start
+        run: echo "epoch=$(bash scripts/notify.sh start '${{ env.DEVICE_CODENAME }}' '${{ env.KERNEL_NAME }}' 'KernelSU' '${{ env.CLANG_VERSION }}')" >> "$GITHUB_OUTPUT"
+
   Kernel_CI:
     env:
       TZ: "Africa/Lagos"
       GH_TOKEN: ${{ github.token }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    needs: notify_start
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
@@ -68,9 +81,6 @@ jobs:
           device: ${{ env.DEVICE_CODENAME }}
           branch: ${{ env.KERNEL_BRANCH }}
 
-      - name: Start Time
-        run: echo "BUILD_START=$(date +%s)" >> $GITHUB_ENV
-
       - name: Clone Kernel Source
         run: |
           rm -rf kernel
@@ -89,17 +99,6 @@ jobs:
           echo "LAST_KSU_COMMIT=${KSU_LOG}" >> $GITHUB_ENV
           echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ env.BUILD_COMMIT }}" >> $GITHUB_ENV
-
-      - name: Send Build Start Message
-        run: |
-          START_MSG="🛠 *${{ env.KERNEL_NAME }} Kernel Build Started!*
-
-          *Device*: \`${{ env.DEVICE_CODENAME }}\`
-          *Root*: \`KernelSU\`
-          *Compiler*: \`${{ env.CLANG_VERSION }}\`
-          *Status*: Compilation in progress..."
-
-          bash scripts/master.sh tg-msg "${START_MSG}"
 
       - name: Prepare clang
         run: |
@@ -132,10 +131,6 @@ jobs:
           name: kernel-zip
           path: "*.zip"
 
-      - name: Send Build Failure Message & Logs
-        if: failure()
-        run: |
-          bash scripts/master.sh fail-report "${GITHUB_WORKSPACE}/build.log" "${{ env.DEVICE_CODENAME }}" "KernelSU" "${BUILD_START:-0}"
       - name: Save ccache
         if: always()
         uses: ./.github/actions/ccache-save
@@ -145,6 +140,7 @@ jobs:
 
   Dispatch:
     needs:
+      - notify_start
       - build-manager
       - Kernel_CI
     if: ${{ !cancelled() && needs.Kernel_CI.result == 'success' }}
@@ -157,6 +153,8 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
+      - uses: actions/checkout@v7
+
       - name: Download Kernel ZIP
         uses: actions/download-artifact@v8
         with:
@@ -170,28 +168,9 @@ jobs:
           name: manager
           path: manager_apk/
 
-      - name: Dispatch Builds to Telegram
+      - name: Notify finish
         run: |
-          ZIP_FILE=$(find kernel_out -name "*.zip" | head -n 1)
-          APK_FILE=$(find manager_apk -name "*.apk" 2>/dev/null | head -n 1)
-
-          if [ -n "$APK_FILE" ] && [ -f "$APK_FILE" ]; then
-            curl -sX POST -F document=@"${APK_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=📱 *KernelSU Manager APK Build*"
-          else
-            echo "::warning::No manager APK found - build-manager result was '${{ needs.build-manager.result }}'"
-          fi
-
-          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
-            curl -sX POST -F document=@"${ZIP_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=📦 *${{ env.KERNEL_NAME }} Kernel Zip Build*"
-          fi
+          bash scripts/notify.sh finish '${{ env.DEVICE_CODENAME }}' '${{ env.KERNEL_NAME }}' '${{ env.CLANG_VERSION }}' "${{ needs.notify_start.outputs.epoch }}" 'kernel_out/*.zip:KernelSU' 'manager_apk/*.apk:Manager APK'
 
   Cache_Cleanup:
     needs: Kernel_CI

@@ -10,6 +10,11 @@ name: Build Custom SUSFS Kernel
 on:
   workflow_dispatch:
     inputs:
+      build_nonksu:
+        description: "Also build the non-KSU variant (nsu)"
+        required: false
+        type: boolean
+        default: false
       device_codename:
         description: "Device (devices/<name>.json). Empty = violet"
         required: false
@@ -80,7 +85,30 @@ permissions:
   contents: read
 
 jobs:
+  notify_start:
+    runs-on: ubuntu-24.04
+    outputs:
+      epoch: ${{ steps.start.outputs.epoch }}
+      variants: ${{ steps.plan.outputs.variants }}
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: builder
+      - id: plan
+        run: |
+          if [ "${{ inputs.build_nonksu }}" = "true" ]; then
+            echo 'variants=["ksu","nsu"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'variants=["ksu"]' >> "$GITHUB_OUTPUT"
+          fi
+      - id: start
+        run: echo "epoch=$(bash builder/scripts/notify.sh start '${{ inputs.device_codename || 'violet' }}' '${{ inputs.kernel_name || 'XCalibur-XF' }}' '${{ inputs.build_nonksu && 'BakaSU + non-KSU' || 'BakaSU' }}' '${{ inputs.clang_version || 'device config' }}')" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: notify_start
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
@@ -94,7 +122,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [ksu, nsu]
+        variant: ${{ fromJSON(needs.notify_start.outputs.variants) }}
     env:
       DEVICE: ${{ inputs.device_codename || 'violet' }}
       TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
@@ -268,34 +296,6 @@ jobs:
             kernel_src/${{ env.DEVICE }}-bakasu-managers.txt
           if-no-files-found: error
 
-      - name: Send flashable zip to Telegram
-        if: success()
-        run: |
-          ZIP=$(ls kernel_src/XCalibur-XF_*.zip | head -1)
-          CAPTION="*${{ inputs.kernel_name || 'XCalibur-XF' }} build ✅*
-
-          *Device*: \`${DEVICE}\`
-          *Variant*: \`${{ matrix.variant }}\`
-          *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          bash builder/scripts/master.sh tg-doc "$ZIP" "$CAPTION"
-
-      - name: Send failure report to Telegram
-        if: failure()
-        run: |
-          LOG="kernel_src/${DEVICE}-${{ matrix.variant }}-build.log"
-          MSG="*XCalibur-XF build failed ❌*
-
-          *Device*: \`${DEVICE}\`
-          *Variant*: \`${{ matrix.variant }}\`
-          *Run*: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "$LOG" ]; then
-            tail -n 35 "$LOG" > error_preview.txt
-            zip -j error_logs.zip "$LOG" error_preview.txt
-            bash builder/scripts/master.sh tg-doc error_logs.zip "$MSG"
-          else
-            bash builder/scripts/master.sh tg-msg "$MSG"
-          fi
-
       - name: Save ccache
         if: always()
         uses: ./builder/.github/actions/ccache-save
@@ -303,6 +303,26 @@ jobs:
           device: ${{ env.DEVICE }}
           branch: ${{ steps.devcfg.outputs.kernel_branch }}
           suffix: -${{ matrix.variant }}
+
+  notify_finish:
+    needs:
+      - notify_start
+      - build
+    runs-on: ubuntu-24.04
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: builder
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: xcalibur-xf-${{ inputs.device_codename || 'violet' }}-*
+          path: zips
+      - name: Notify finish
+        run: |
+          bash builder/scripts/notify.sh finish '${{ inputs.device_codename || 'violet' }}' '${{ inputs.kernel_name || 'XCalibur-XF' }}' '${{ inputs.clang_version || 'device config' }}' "${{ needs.notify_start.outputs.epoch }}" 'zips/xcalibur-xf-${{ inputs.device_codename || 'violet' }}-ksu/*.zip:BakaSU' 'zips/xcalibur-xf-${{ inputs.device_codename || 'violet' }}-nsu/*.zip:non-KSU'
 
   release:
     needs: build

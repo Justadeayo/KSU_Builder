@@ -90,7 +90,20 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
 
+  notify_start:
+    runs-on: ubuntu-24.04
+    outputs:
+      epoch: ${{ steps.start.outputs.epoch }}
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: start
+        run: echo "epoch=$(bash scripts/notify.sh start '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.ksu_type == 'Uni-SU' && 'Universal' || inputs.ksu_type == 'None' && 'None' || 'KernelSU' }}' '${{ inputs.clang_version }}')" >> "$GITHUB_OUTPUT"
+
   Kernel_CI:
+    needs: notify_start
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
@@ -141,9 +154,6 @@ jobs:
           device: ${{ inputs.device_codename }}
           branch: ${{ inputs.kernel_branch }}
 
-      - name: Start Time
-        run: echo "BUILD_START=$(date +%s)" >> $GITHUB_ENV
-
       - name: Clone Kernel Source
         run: |
           rm -rf kernel
@@ -162,16 +172,6 @@ jobs:
           echo "LAST_KSU_COMMIT=${KSU_LOG}" >> $GITHUB_ENV
           echo "COMMIT_HASH=${KSU_HASH}" >> $GITHUB_ENV
           echo "BUILD_COMMIT=${{ inputs.BUILD_COMMIT }}" >> $GITHUB_ENV
-
-      - name: Send Build Start Message
-        run: |
-          START_MSG="🛠 *${{ inputs.kernel_name }} Kernel Build Started!*
-
-          *Device*: \`${{ inputs.device_codename }}\`
-          *Root*: \`${{ inputs.ksu_type }}\`
-          *Status*: Compilation in progress..."
-
-          bash scripts/master.sh tg-msg "${START_MSG}"
 
       - name: Prepare clang
         run: |
@@ -212,10 +212,6 @@ jobs:
           echo "duration=$((DURATION / 60))m $((DURATION % 60))s" >> $GITHUB_OUTPUT
           echo "kernel_ver=${KERNEL_VER}" >> $GITHUB_OUTPUT
 
-      - name: Send Build Failure Message & Logs
-        if: failure()
-        run: |
-          bash scripts/master.sh fail-report "${GITHUB_WORKSPACE}/build.log" "${{ inputs.device_codename }}" "${{ inputs.ksu_type }}" "${BUILD_START:-0}"
       - name: Save ccache
         if: always()
         uses: ./.github/actions/ccache-save
@@ -225,6 +221,7 @@ jobs:
 
   Dispatch:
     needs:
+      - notify_start
       - build-manager
       - Kernel_CI
     if: ${{ !cancelled() && needs.Kernel_CI.result == 'success' }}
@@ -252,44 +249,9 @@ jobs:
           name: manager
           path: manager_out/
 
-      - name: Send Build Files and Summary via Telegram
+      - name: Notify finish
         run: |
-          ZIP_FILE=$(find kernel_out -name "*.zip" | head -n 1)
-          FILE_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
-          APK_FILE=$(find manager_out -type f -name "*.apk" 2>/dev/null | head -n 1)
-          
-          if [ -n "$APK_FILE" ] && [ -f "$APK_FILE" ]; then
-            curl -sX POST -F document=@"${APK_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=📦 *Manager APK*"
-          fi
-
-          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
-            curl -sX POST -F document=@"${ZIP_FILE}" \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-              -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F "parse_mode=Markdown" \
-              -F "caption=⚡ *Kernel Flashable Zip*"
-          fi
-
-          K_NAME_UPPER=$(echo "${{ inputs.kernel_name }}" | sed 's/./& /g' | tr '[:lower:]' '[:upper:]')
-
-          SUCCESS_MSG="=============================
-            ${K_NAME_UPPER}  -  K E R N E L
-          =============================
-
-          *Developer*: @Justadeayo🪖
-          *Device*: \`${{ inputs.device_codename }}\`
-          *Linux Ver*: \`${{ needs.Kernel_CI.outputs.kernel_ver }}\`
-          *Compiler*: \`${{ inputs.clang_version }}\`
-          *Root*: \`${{ inputs.ksu_type }}\`
-          *Size*: \`${FILE_SIZE}\`
-          *Duration*: \`${{ needs.Kernel_CI.outputs.duration }}\`
-          *Date*: \`$(date +'%Y-%m-%d %H:%M WAT')\`"
-
-          bash scripts/master.sh tg-msg "${SUCCESS_MSG}"
+          bash scripts/notify.sh finish '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.clang_version }}' "${{ needs.notify_start.outputs.epoch }}" 'kernel_out/*.zip:${{ inputs.ksu_type == 'Uni-SU' && 'Universal' || inputs.ksu_type == 'None' && 'None' || 'KernelSU' }}' 'manager_apk/*.apk:Manager APK'
 
   Cache_Cleanup:
     needs: Kernel_CI

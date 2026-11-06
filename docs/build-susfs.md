@@ -41,7 +41,7 @@ The full input list is in [Workflows](workflows.md#build-customyml-build-custom-
   4. Restores the Clang and ccache caches.
   5. Runs `env.sh`, `variant.sh` and `compile.sh`.
   6. Uploads the zip and debug artifacts.
-  7. Sends the zip to Telegram on success, or the last 35 log lines on failure.
+  7. Sends the finish message with the zips once every selected variant succeeds. A failed build sends no Telegram message.
 - **Release job** (only if `create_release` is `true`): gathers every `xcalibur-xf-*` artifact and publishes one release. The release notes show the BakaSU and SuSFS versions from the `ksu` build.
 
 ## Variants
