@@ -70,10 +70,11 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 | Kernel name | `XCalibur-XF` |
 
 - **Jobs:**
-  1. `build-manager`: calls `build-manager.yml` for the Manager APK.
-  2. `Kernel_CI`: runs in the build image. Clones the kernel, runs the KernelSU `setup.sh`, adds the KSU options to the defconfig, checks they survive `olddefconfig`, compiles, and packages the zip.
-  3. `Dispatch`: waits for both jobs, then sends the kernel zip and Manager APK to Telegram.
-  4. `Cache_Cleanup`: prunes old ccache entries.
+  1. `sync`: calls `sync.yml` to align `Justadeayo/KernelSU` with upstream. Takes about 15 seconds.
+  2. `build-manager`: waits for `sync`, then calls `build-manager.yml` for the Manager APK from the synced source.
+  3. `Kernel_CI`: runs in the build image, in parallel with `sync` and `build-manager`. Clones the kernel, runs the KernelSU `setup.sh`, adds the KSU options to the defconfig, checks they survive `olddefconfig`, compiles, and packages the zip.
+  4. `Dispatch`: waits for both jobs, then sends the kernel zip and Manager APK to Telegram.
+  5. `Cache_Cleanup`: prunes old ccache entries.
 
 ## `kernel.yml`: Kernel Build (main)
 
@@ -154,12 +155,12 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ## `sync.yml`: Sync Upstream Updates
 
-**Purpose:** keeps `Justadeayo/KernelSU` aligned with upstream every day. It uses a token because it pushes to another repository.
+**Purpose:** keeps `Justadeayo/KernelSU` aligned with upstream, so every automated build uses the latest KernelSU. It uses a token because it pushes to another repository.
 
-- **Triggers:** daily cron at 00:00 UTC; manual.
-- **Input:** `trigger_release` (default `false`) starts `release.yml` on `Justadeayo/KSU_Builder` (`dev`) after a successful sync.
+- **Triggers:** called by `automated.yml` at the start of each run, or run by hand. The daily schedule was removed.
+- **Input:** `trigger_release` (default `false`) starts `release.yml` on `Justadeayo/KSU_Builder` (`dev`) after a successful sync. Calls from `automated.yml` never set it.
 - **Behavior:** compares `master` with upstream. If there are new commits, it resets to upstream and force-pushes, then sends a Telegram notice.
-- **Scheduled runs never start a release.**
+- **Manual runs start a release only if `trigger_release` is set.**
 
 ---
 

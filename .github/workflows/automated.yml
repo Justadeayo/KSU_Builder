@@ -20,7 +20,15 @@ env:
   KERNEL_NAME: "XCalibur-XF"
 
 jobs:
+  sync:
+    uses: ./.github/workflows/sync.yml
+    secrets: inherit
+    permissions:
+      contents: write
+      actions: write
+
   build-manager:
+    needs: sync
     uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
 
   Kernel_CI:
