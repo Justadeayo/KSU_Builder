@@ -16,13 +16,6 @@ on:
         options:
           - clang-r596125
           - clang-r416183b
-          - clang-3289846
-          - clang-r450784e
-          - clang-r475365b
-          - clang-r487747c
-          - clang-r498229b
-          - clang-r510928
-          - clang-r547379
           - clang-r563880
           - clang-r563880c
           - clang-r574158
