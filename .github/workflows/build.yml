@@ -207,8 +207,8 @@ jobs:
           cp -r builder/devices kernel_src/
           cp -r builder/scripts kernel_src/
           cp builder/config.env kernel_src/
-          # Put the resolved config (inputs applied) in place of the device JSON.
-          cp resolved.json "kernel_src/devices/${DEVICE}.json"
+          # env.sh and read_field expect {"<device>": {...}}, so wrap the resolved config.
+          printf '{"%s": %s}\n' "$DEVICE" "$RESOLVED" > "kernel_src/devices/${DEVICE}.json"
 
       - name: Preflight — verify declared kernel version
         working-directory: kernel_src
@@ -321,6 +321,29 @@ jobs:
           bash builder/scripts/notify.sh finish "$DEV" "$NAME" "clang-$CLANG" "${{ needs.notify_start.outputs.epoch }}" \
             "zips/xcalibur-xf-$DEV-ksu/*.zip:BakaSU" \
             "zips/xcalibur-xf-$DEV-nsu/*.zip:non-KSU"
+
+  notify_failed:
+    needs:
+      - config
+      - notify_start
+      - build
+    if: ${{ failure() }}
+    runs-on: ubuntu-24.04
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      RESOLVED: ${{ needs.config.outputs.resolved }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: builder
+      - name: Notify failure
+        run: |
+          DEV=$(jq -r .device <<<"$RESOLVED")
+          NAME=$(jq -r .kernel_name <<<"$RESOLVED")
+          CLANG=$(jq -r .clang_version <<<"$RESOLVED")
+          bash builder/scripts/notify.sh fail "$DEV" "$NAME" "clang-$CLANG" "${{ needs.notify_start.outputs.epoch }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   release:
     needs:

@@ -108,6 +108,18 @@ ${lines}Check the workflow run for the files."
             exit 1
         fi
         ;;
+    fail)
+        device="$2"; kernel="$3"; compiler="$4"; started="$5"; run_url="$6"
+        now=$(date +%s)
+        send_text "❌ *${kernel} Build Failed!*
+
+*Device*: \`${device}\`
+*Compiler*: \`${compiler}\`
+*Failed after*: $(fmt_dur $((now - started)))
+*Failed at*: $(fmt_time "$now")
+
+[View the run](${run_url})"
+        ;;
     *)
         echo "usage: notify.sh sync <yes|no> <short-sha> <commit-date> <commit-subject>" >&2
         echo "       notify.sh start <device> <kernel> <root> <compiler>" >&2
