@@ -26,8 +26,9 @@ send_doc() {
     curl -sf -X POST "$API/sendDocument" \
         -F "chat_id=${TELEGRAM_CHAT_ID}" \
         -F "caption=$2" \
-        -F "document=@$1" >/dev/null || echo "::warning::Telegram file not sent: $1" >&2
-    return 0
+        -F "document=@$1" >/dev/null && return 0
+    echo "::warning::Telegram file not sent: $1" >&2
+    return 1
 }
 
 fmt_time() {
@@ -72,7 +73,14 @@ case "${1:-}" in
             echo "::warning::No build outputs found, nothing to send." >&2
             exit 0
         fi
-        send_text "✅ *${kernel} Build Finished Successfully!*
+        # Upload every file before the summary, so "Finished Successfully" is only
+        # sent once all artifacts have reached Telegram.
+        failed=0
+        for entry in "${files[@]}"; do
+            send_doc "${entry%:*}" "${entry##*:}" || failed=1
+        done
+        if [ "$failed" -eq 0 ]; then
+            send_text "✅ *${kernel} Build Finished Successfully!*
 
 *Device*: \`${device}\`
 *Compiler*: \`${compiler}\`
@@ -80,9 +88,16 @@ case "${1:-}" in
 *Finished at*: $(fmt_time "$now")
 
 ${lines}"
-        for entry in "${files[@]}"; do
-            send_doc "${entry%:*}" "${entry##*:}"
-        done
+        else
+            send_text "⚠️ *${kernel} Build Finished, but some files failed to upload to Telegram.*
+
+*Device*: \`${device}\`
+*Compiler*: \`${compiler}\`
+*Finished at*: $(fmt_time "$now")
+
+${lines}Check the workflow run for the files."
+            exit 1
+        fi
         ;;
     *)
         echo "usage: notify.sh start <device> <kernel> <root> <compiler>" >&2
