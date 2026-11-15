@@ -112,6 +112,9 @@ jobs:
       - name: Setup KernelSU & Configure Defconfig
         run: |
           bash scripts/master.sh ksu-setup kernel KernelSU "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh"
+      - name: Reset ccache statistics
+        run: bash scripts/ccache-summary.sh reset
+
       - name: Compile Kernel
         env:
           REQUIRE_KSU_TAMPER: true
@@ -120,7 +123,7 @@ jobs:
           bash scripts/master.sh compile "${{ env.CLANG_VERSION }}" "${{ env.DEFCONFIG_NAME }}" kernel "${GITHUB_WORKSPACE}/build.log"
       - name: ccache stats
         if: always()
-        run: CCACHE_DIR="$HOME/.ccache" ccache -s || true
+        run: bash scripts/ccache-summary.sh report
       - name: Make AnyKernel3
         run: |
           ZIP=$(bash scripts/master.sh anykernel "kernel/out/arch/arm64/boot" "${{ env.KERNEL_NAME }}" "${{ env.DEVICE_CODENAME }}" "KernelSU" "toolchains/${{ env.CLANG_VERSION }}/bin")

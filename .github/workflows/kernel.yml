@@ -188,6 +188,9 @@ jobs:
             *)     URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/${{ inputs.branch || 'master' }}/kernel/setup.sh" ;;
           esac
           bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL" "${{ inputs.branch || 'master' }}"
+      - name: Reset ccache statistics
+        run: bash scripts/ccache-summary.sh reset
+
       - name: Compile Kernel
         env:
           REQUIRE_KSU_TAMPER: ${{ inputs.ksu_type == 'KernelSU' }}
@@ -196,7 +199,7 @@ jobs:
           bash scripts/master.sh compile "${{ inputs.clang_version }}" "${{ inputs.defconfig_name }}" kernel "${GITHUB_WORKSPACE}/build.log"
       - name: ccache stats
         if: always()
-        run: CCACHE_DIR="$HOME/.ccache" ccache -s || true
+        run: bash scripts/ccache-summary.sh report
       - name: Make AnyKernel3
         run: |
           ZIP=$(bash scripts/master.sh anykernel "kernel/out/arch/arm64/boot" "${{ inputs.kernel_name }}" "${{ inputs.device_codename }}" "${{ inputs.ksu_type }}" "toolchains/${{ inputs.clang_version }}/bin")

@@ -202,6 +202,9 @@ jobs:
           device: ${{ env.DEVICE }}
           branch: ${{ fromJSON(needs.config.outputs.resolved).kernel_branch }}
 
+      - name: Reset ccache statistics
+        run: bash builder/scripts/ccache-summary.sh reset
+
       - name: Stage builder files into kernel source
         run: |
           cp -r builder/devices kernel_src/
@@ -286,6 +289,10 @@ jobs:
             kernel_src/${{ env.DEVICE }}-susfs-version.txt
             kernel_src/${{ env.DEVICE }}-bakasu-managers.txt
           if-no-files-found: error
+
+      - name: CCache summary
+        if: always()
+        run: bash builder/scripts/ccache-summary.sh report
 
       - name: Save ccache
         if: always()
