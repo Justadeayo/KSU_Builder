@@ -49,6 +49,8 @@ jobs:
 
           echo "Comparing local master with upstream/$UPSTREAM_BRANCH..."
 
+          echo "UPSTREAM_REF=upstream/$UPSTREAM_BRANCH" >> $GITHUB_ENV
+
           if git merge-base --is-ancestor upstream/$UPSTREAM_BRANCH HEAD; then
             echo "✅ master is already up to date. Skipping sync."
             echo "SYNC_NEEDED=false" >> $GITHUB_ENV
@@ -62,6 +64,22 @@ jobs:
         if: env.SYNC_NEEDED == 'true'
         run: |
           git push origin master --force
+
+      - name: Checkout builder (for notify.sh)
+        uses: actions/checkout@v7
+        with:
+          path: builder
+
+      - name: Telegram sync result
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          SHA=$(git rev-parse --short "$UPSTREAM_REF")
+          WHEN=$(TZ=Africa/Lagos git log -1 --date=format-local:'%d %b %Y, %H:%M WAT' --format=%cd "$UPSTREAM_REF")
+          SUBJECT=$(git log -1 --format=%s "$UPSTREAM_REF")
+          if [ "$SYNC_NEEDED" = "true" ]; then SYNCED=yes; else SYNCED=no; fi
+          bash builder/scripts/notify.sh sync "$SYNCED" "$SHA" "$WHEN" "$SUBJECT"
 
       - name: Trigger Release Workflow for Violet
         if: env.SYNC_NEEDED == 'true' && inputs.trigger_release == true

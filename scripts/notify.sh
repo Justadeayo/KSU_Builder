@@ -40,6 +40,15 @@ fmt_dur() {
 }
 
 case "${1:-}" in
+    sync)
+        synced="$2"; sha="$3"; when="$4"; subject="${5//\`/}"
+        send_text "🔄 *KernelSU Sync*
+
+*Synced*: ${synced}
+*Commit*: \`${sha}\`
+*Message*: \`${subject}\`
+*Upstream commit date*: ${when}"
+        ;;
     start)
         device="$2"; kernel="$3"; root="$4"; compiler="$5"
         now=$(date +%s)
@@ -100,7 +109,8 @@ ${lines}Check the workflow run for the files."
         fi
         ;;
     *)
-        echo "usage: notify.sh start <device> <kernel> <root> <compiler>" >&2
+        echo "usage: notify.sh sync <yes|no> <short-sha> <commit-date> <commit-subject>" >&2
+        echo "       notify.sh start <device> <kernel> <root> <compiler>" >&2
         echo "       notify.sh finish <device> <kernel> <compiler> <start-epoch> <path:label>..." >&2
         exit 2
         ;;
