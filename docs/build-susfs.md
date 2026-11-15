@@ -4,7 +4,7 @@
 
 ---
 
-`build.yml` and `build-custom.yml` build violet with SUSFS. They are the only workflows that use the framework in `scripts/`, `devices/` and `config.env`.
+`build.yml` builds violet with SUSFS by default, and any other device with its inputs. They are the only workflows that use the framework in `scripts/`, `devices/` and `config.env`.
 
 ## Contents
 
@@ -17,26 +17,19 @@
 
 ## Run it
 
-**`build.yml`** (fixed to violet):
-
-1. Go to **Actions** → **Build XCalibur-XF SUSFS Kernel (violet)**.
-2. Click **Run workflow**.
-3. Set **create_release** if you want a GitHub Release. Leave it `false` otherwise.
-
-**`build-custom.yml`** (any device, any setting):
-
-1. Go to **Actions** → **Build Custom SUSFS Kernel**.
-2. Fill in only the inputs you want to change. Leave the rest empty to use `devices/<device>.json`.
+1. Go to **Actions** → **Build SUSFS Kernel**.
+2. Fill in only the inputs you want to change. Leave the rest empty to use `devices/<device>.json`, which builds violet.
 3. Click **Run workflow**. The log shows which inputs were applied over the JSON.
+4. Set **create_release** if you want a GitHub Release. Leave it `false` otherwise.
 
-The full input list is in [Workflows](workflows.md#build-customyml-build-custom-susfs-kernel).
+The full input list is in [Workflows](workflows.md#buildyml-build-susfs-kernel).
 
 ## What it does
 
 - **Matrix:** two jobs, one for `ksu` and one for `nsu`. `fail-fast` is off, so one failing variant doesn't stop the other.
 - **Steps:**
   1. Installs dependencies.
-  2. Resolves the device config. In `build-custom.yml`, inputs are applied over the JSON here.
+  2. Resolves the device config. In `build.yml`, inputs are applied over the JSON here, by `scripts/resolve-device.py`.
   3. Clones the kernel source.
   4. Restores the Clang and ccache caches.
   5. Runs `env.sh`, `variant.sh` and `compile.sh`.
@@ -84,7 +77,7 @@ scripts/compile.sh    Builds the kernel, merges the fragment, packages the zip
 2. Set `kernel_version` to the `VERSION.PATCHLEVEL` in the kernel's `Makefile`. The preflight step fails the build if they differ.
 3. Set `clang_branch` to the googlesource branch that clang version was published under. `env.sh` won't guess it.
 4. If the SuSFS patch leaves a reject in a file your kernel changes differently, add a port patch under `devices/patches/<name>-<file>.patch` and apply it in `ksu.sh`, as done for violet's `fs/proc/cmdline.c`.
-5. `build-custom.yml` takes the device name as an input. `build.yml` is hardcoded to violet, so use `build-custom.yml` for a second device, or copy `build.yml` and change the device.
+5. `build.yml` takes the device name as an input (`device_codename`). Set it to use a second device, after adding `devices/<name>.json`.
 
 ---
 

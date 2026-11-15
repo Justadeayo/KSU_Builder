@@ -1,4 +1,4 @@
-name: Kernel Build (main)
+name: Kernel Build
 
 on:
   workflow_dispatch:
@@ -32,6 +32,12 @@ on:
         description: Kernel Branch
         required: true
         type: string
+        
+      branch:
+        description: KernelSU Branch
+        required: true
+        type: string 
+        default: master
 
       defconfig_name:
         description: Defconfig Name
@@ -45,7 +51,7 @@ on:
         default: "violet"
 
       ksu_type:
-        description: KernelSU
+        description: Root manager compatibility
         required: false
         type: choice
         options:
@@ -69,6 +75,12 @@ on:
         description: Telegram Bot Token
         required: false
         type: string
+
+      upload_raw_outputs:
+        description: Also upload the raw kernel images (Image, dtb, dtbo) as an artifact
+        required: false
+        type: boolean
+        default: false
 
 env:
   TZ: "Africa/Lagos"
@@ -144,10 +156,11 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
 
+          BRANCH="${{ inputs.branch || 'master' }}"
           if [[ "${{ inputs.ksu_type }}" == "Uni-SU" ]]; then
-            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git -b master KSU_REPO
-          elif [[ "${{ inputs.ksu_type }}" != "None"* ]]; then
-            git clone --depth=1 https://github.com/Justadeayo/KernelSU.git -b master KSU_REPO
+            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git -b "$BRANCH" KSU_REPO
+          else
+            git clone --depth=1 https://github.com/Justadeayo/KernelSU.git -b "$BRANCH" KSU_REPO
           fi
 
           cd KSU_REPO
@@ -171,10 +184,10 @@ jobs:
       - name: Setup KernelSU & Configure Defconfig
         run: |
           case "${{ inputs.ksu_type }}" in
-            Uni-SU) URL="https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/master/kernel/setup.sh" ;;
-            *)     URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh" ;;
+            Uni-SU) URL="https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/${{ inputs.branch || 'master' }}/kernel/setup.sh" ;;
+            *)     URL="https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/${{ inputs.branch || 'master' }}/kernel/setup.sh" ;;
           esac
-          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL"
+          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL" "${{ inputs.branch || 'master' }}"
       - name: Compile Kernel
         env:
           REQUIRE_KSU_TAMPER: ${{ inputs.ksu_type == 'KernelSU' }}
@@ -188,6 +201,25 @@ jobs:
         run: |
           ZIP=$(bash scripts/master.sh anykernel "kernel/out/arch/arm64/boot" "${{ inputs.kernel_name }}" "${{ inputs.device_codename }}" "${{ inputs.ksu_type }}" "toolchains/${{ inputs.clang_version }}/bin")
           echo "ZIP_NAME=${ZIP%.zip}" >> $GITHUB_ENV
+      - name: Collect Raw Kernel Outputs
+        if: ${{ inputs.upload_raw_outputs }}
+        run: |
+          BOOT_DIR="kernel/out/arch/arm64/boot"
+          mkdir -p raw-outputs
+
+          for f in Image Image.gz Image.gz-dtb dtb.img dtb dtbo.img; do
+            if [ -f "$BOOT_DIR/$f" ]; then
+              cp "$BOOT_DIR/$f" "raw-outputs/$f"
+            fi
+          done
+
+      - name: Upload Raw Kernel Artifacts
+        if: ${{ inputs.upload_raw_outputs }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: kernel-raw-outputs
+          path: raw-outputs/*
+
       - name: Upload Kernel ZIP Artifact
         uses: actions/upload-artifact@v7
         with:

@@ -7,7 +7,7 @@
 ## Contents
 
 - [General](#general)
-- [Build framework (`build.yml`, `build-custom.yml`)](#build-framework-buildyml-build-customyml)
+- [Build framework (`build.yml`)](#build-framework-buildyml)
 - [Workflow calls the wrong branch](#workflow-calls-the-wrong-branch)
 
 ## General
@@ -41,7 +41,7 @@ Check the job log for errors. Zip names follow `<kernel-name>_<device>_<label>_<
 ### `master.sh clang` can't download a version
 None of the googlesource refs has that version. Check the name on [googlesource](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86) and add its ref to `cmd_clang` if it lives somewhere new.
 
-## Build framework (`build.yml`, `build-custom.yml`)
+## Build framework (`build.yml`)
 
 ### Real SuSFS rejects
 The SuSFS patch doesn't match a kernel file. Download the `-rejects` artifact and find the `.rej` file. Add a port patch under `devices/patches/` and apply it in `ksu.sh`.
@@ -50,7 +50,7 @@ The SuSFS patch doesn't match a kernel file. Download the `-rejects` artifact an
 `setup.sh` couldn't check out `KSU_REPO_PIN` and fell back to the default branch. Confirm the pin exists in the BakaSU repository.
 
 ### `kernel_version mismatch`
-`kernel_version` in `devices/<name>.json`, or the `kernel_version` input in `build-custom.yml`, doesn't match the kernel's `Makefile`. Update it.
+`kernel_version` in `devices/<name>.json`, or the `kernel_version` input in `build.yml`, doesn't match the kernel's `Makefile`. Update it.
 
 ### `Install build dependencies` fails in `build.yml`
 `build.yml` checks the repository out into `builder/`. Any step that calls `scripts/master.sh` from the workspace root must use `builder/scripts/master.sh`.

@@ -22,7 +22,7 @@ Add these under **Settings** → **Secrets and variables** → **Actions**.
 
 To get the chat ID, message your bot and check the update log, or use [@userinfobot](https://t.me/userinfobot).
 
-If the Telegram secrets aren't set, the Telegram steps are skipped and the build still runs. `build-custom.yml` also takes the token and chat ID as inputs, which override the secrets for that run.
+If the Telegram secrets aren't set, the Telegram steps are skipped and the build still runs. `build.yml` also takes the token and chat ID as inputs, which override the secrets for that run.
 
 ## Keystore for release-signed Manager builds
 
@@ -35,19 +35,19 @@ Non-PR builds use the dummy keystore in `build-manager.yml`. To sign with your o
 
 ## Where the outputs go
 
-**Releases:** created by `release.yml`, or by `create_release` in `build.yml` and `build-custom.yml`.
+**Releases:** created by `release.yml`, or by `create_release` in `build.yml`.
 
 **Actions artifacts:** open the run and scroll to **Artifacts**.
 
 | Artifact | Produced by |
 | :--- | :--- |
 | `manager`, `manager-gradle`, `ksud-*`, `mappings` | `build-manager.yml` |
-| `kernel-zip` | `automated.yml`, `kernel.yml`, `kernel_build.yml`, `Kernel_&_Manager_build.yml` |
-| `kernel-raw-outputs` | `kernel_build.yml` |
-| `xcalibur-xf-<device>-<variant>` | `build.yml`, `build-custom.yml` |
-| `debug-<device>-<variant>` | `build.yml`, `build-custom.yml` |
-| `xcalibur-xf-<device>-ksu-versions` | `build.yml`, `build-custom.yml` (`ksu` only) |
-| `xcalibur-xf-<device>-<variant>-rejects` | `build.yml`, `build-custom.yml` (failed builds only) |
+| `kernel-zip` | `automated.yml`, `kernel.yml` |
+| `kernel-raw-outputs` | `kernel.yml` (only with `upload_raw_outputs`) |
+| `xcalibur-xf-<device>-<variant>` | `build.yml` |
+| `debug-<device>-<variant>` | `build.yml` |
+| `xcalibur-xf-<device>-ksu-versions` | `build.yml` (`ksu` only) |
+| `xcalibur-xf-<device>-<variant>-rejects` | `build.yml` (failed builds only) |
 
 **Telegram:**
 - The kernel zip is sent on success. A failed build sends the last 35 log lines.

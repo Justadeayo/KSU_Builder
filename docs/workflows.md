@@ -8,12 +8,9 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ## Contents
 
-- [build.yml](#buildyml-build-xcalibur-xf-susfs-kernel)
-- [build-custom.yml](#build-customyml-build-custom-susfs-kernel)
+- [build.yml](#buildyml-build-susfs-kernel)
 - [automated.yml](#automatedyml-automated-build-for-violet)
-- [kernel.yml](#kernelyml-kernel-build-main)
-- [kernel_build.yml](#kernel_buildyml-kernel-build-extra)
-- [Kernel_&_Manager_build.yml](#kernel__manager_buildyml-kernel--manager-build)
+- [kernel.yml](#kernelyml-kernel-build)
 - [build-env.yml](#build-envyml-build-env-image)
 - [build-manager.yml](#build-manageryml-build-manager)
 - [release.yml](#releaseyml-release)
@@ -21,37 +18,37 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 
 ---
 
-## `build.yml`: Build XCalibur-XF SUSFS Kernel
+## `build.yml`: Build SUSFS Kernel
 
-**Purpose:** build violet with SUSFS in `ksu` and `nsu` variants, using the pinned framework in `scripts/` and `devices/`. Sends one start message, then one finish message with the zips once every selected variant succeeds.
-
-- **Triggers:** manual.
-- **Inputs:** `create_release` (default `false`) creates a GitHub Release after the build.
-- **Jobs:** `build` (one job per variant), then `release` if `create_release` is set.
-- Details: [Build a SUSFS kernel](build-susfs.md).
-
-## `build-custom.yml`: Build Custom SUSFS Kernel
-
-**Purpose:** the same build as `build.yml`, with every setting open to override. An empty input keeps the value from `devices/<device>.json`.
+**Purpose:** build a device with SUSFS in `ksu` and `nsu` variants, using the pinned framework in `scripts/` and `devices/`. Sends one start message, then one finish message with the zips once every selected variant succeeds. Every setting can be overridden per run. An empty input keeps the value from `devices/<device>.json`, so an empty form builds violet.
 
 - **Triggers:** manual.
 - **Inputs:**
 
 | Input | Description | Empty means |
 | :--- | :--- | :--- |
+| `build_nonksu` | Also build the non-KSU variant (`nsu`) | off |
 | `device_codename` | Device name, matching `devices/<name>.json` | `violet` |
 | `kernel_name` | Name used in the zip name | JSON value |
 | `kernel_source` | Kernel repository URL | JSON value |
 | `kernel_branch` | Kernel branch | JSON value |
 | `kernel_version` | `VERSION.PATCHLEVEL` checked in preflight | JSON value |
 | `defconfig_name` | Defconfig target | JSON value |
-| `clang_version` | Clang version | JSON value |
+| `clang_version` | Clang version, e.g. `r596125` | JSON value |
 | `clang_branch` | googlesource branch for that Clang | JSON value |
 | `ak3_repo`, `ak3_branch` | AnyKernel3 source | JSON value |
-| `telegram_chat_id`, `telegram_bot_token` | Telegram overrides | the repository secrets |
+| `telegram_chat_id`, `telegram_bot_token` | Telegram overrides, used for every message in the run | the repository secrets |
 | `create_release` | Create a GitHub Release | `false` |
 
-- **Jobs:** `build` (one job per variant), then `release` if `create_release` is set.
+- **Jobs:**
+  1. `config`: resolves the device config once (the JSON with inputs applied, see `scripts/resolve-device.py`) and plans the variants.
+  2. `notify_start`: sends the start message.
+  3. `build`: one job per variant.
+  4. `notify_finish`: sends the finish message with the zips.
+  5. `release`: runs only when `create_release` is set.
+  6. `Cache_Cleanup`: prunes old ccache entries for that device and branch.
+- **Release:** the tag is `xcalibur-xf-<device>-<date>-<run>` and the title is `XCalibur-XF <device> - <date>`. For violet, these match the earlier `build.yml`.
+- Details: [Build a SUSFS kernel](build-susfs.md).
 
 ## `automated.yml`: Automated Build for Violet
 
@@ -76,9 +73,9 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
   4. `Dispatch`: waits for both jobs, then sends the finish message with the kernel zip and Manager APK.
   5. `Cache_Cleanup`: prunes old ccache entries.
 
-## `kernel.yml`: Kernel Build (main)
+## `kernel.yml`: Kernel Build
 
-**Purpose:** the main standalone build for any kernel source. Builds the kernel and packages an AnyKernel3 zip. Does not build the Manager APK.
+**Purpose:** the standalone kernel build for any kernel source. Builds the kernel and packages an AnyKernel3 zip. Does not build the Manager APK. It also takes the optional raw-image upload, which is off by default.
 
 - **Triggers:** manual.
 - **Inputs:**
@@ -92,33 +89,14 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 | `defconfig_name` | String | Defconfig path under `arch/arm64/configs/` | required |
 | `device_codename` | String | Used in the zip name and AnyKernel3 | `violet` |
 | `ksu_type` | Choice | `None`, `KernelSU`, `Uni-SU` | `KernelSU` |
+| `branch` | String | Driver repo branch, for both the clone and `setup.sh` | `master` |
 | `BUILD_COMMIT` | String | Note added to the build message | `Synced with upstream changes 💯` |
+| `upload_raw_outputs` | Boolean | Also upload `Image`, `Image.gz`, `Image.gz-dtb`, `dtb.img`, `dtb` and `dtbo.img` as a `kernel-raw-outputs` artifact | `false` |
 | `telegram_chat_id`, `telegram_bot_token` | String | Overrides for the secrets | secret fallback |
 
-- **Root choice:** `ksu_type` picks the root setup and the zip label. `KernelSU` uses `Justadeayo/KernelSU` (master). `Uni-SU` uses `Justadeayo/sKernelSU` (master), a driver compatible with several managers.
-- **Jobs:** `Kernel_CI` (runs in the build image; build and zip), then `Cache_Cleanup`.
+- **Root choice:** `ksu_type` picks the root setup and the zip label. `KernelSU` uses `Justadeayo/KernelSU` and `Uni-SU` uses `Justadeayo/sKernelSU`, both on `branch`. `None` skips root setup but still clones the KernelSU repo for its commit message.
+- **Jobs:** `notify_start`, `Kernel_CI` (runs in the build image; build and zip), `Dispatch` (sends the finish message with the zip), and `Cache_Cleanup`.
 - **Clang:** `clang-r596125` comes from the image. Any other `clang_version` is downloaded on the run.
-
-## `kernel_build.yml`: Kernel Build (extra)
-
-**Purpose:** a second standalone build for testing. Same inputs as `kernel.yml`, plus a KernelSU branch.
-
-- **Differences from `kernel.yml`:**
-  - `branch` input (default `master`, used when left empty) picks the branch of the driver repo for both the clone and `setup.sh`. `Uni-SU` uses the `sKernelSU` fork; `KernelSU` uses the KernelSU fork.
-  - Uploads a `kernel-raw-outputs` artifact with `Image`, `Image.gz`, `dtb` and `dtbo.img`.
-
-## `Kernel_&_Manager_build.yml`: Kernel & Manager Build
-
-**Purpose:** the full custom build. Takes any kernel source, builds the kernel and the Manager APK, and sends one start and one finish message.
-
-- **Triggers:** manual.
-- **Inputs:** the same as `kernel.yml`. The `clang_version` list also includes `clang-3289846`, `clang-r450784e` and `clang-r475365b`.
-- **Build image:** `Kernel_CI` runs in the build image, as in `kernel.yml`.
-- **Jobs:**
-  1. `build-manager`: runs only when `ksu_type` is `KernelSU`.
-  2. `Kernel_CI`: builds the kernel and uploads `kernel-zip`.
-  3. `Dispatch`: sends the finish message with the Manager APK and the kernel zip.
-  4. `Cache_Cleanup`: prunes old ccache entries.
 
 ## `build-env.yml`: Build Env Image
 

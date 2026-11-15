@@ -11,7 +11,7 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 | Page | What's in it |
 | :--- | :--- |
 | [Workflows](docs/workflows.md) | Purpose, triggers, inputs and jobs for every workflow |
-| [Build a SUSFS kernel](docs/build-susfs.md) | `build.yml` and `build-custom.yml`, the framework layout, adding a device |
+| [Build a SUSFS kernel](docs/build-susfs.md) | `build.yml`, the framework layout, adding a device |
 | [Master script](docs/master-script.md) | `scripts/master.sh` commands and where each workflow uses them |
 | [Secrets and outputs](docs/secrets-and-outputs.md) | Repository secrets, artifact names, notify delivery |
 | [Forking](docs/forking.md) | Hardcoded values to change in your own fork |
@@ -24,13 +24,10 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 
 | Workflow | Trigger | Purpose | Uses master script |
 | :--- | :--- | :--- | :--- |
-| `build.yml` (Build XCalibur-XF SUSFS Kernel) | Manual | Builds violet in two variants: `ksu` is BakaSU with SuSFS, `nsu` is a non-root build without SuSFS, from the `devices/` framework | build image, notify |
-| `build-custom.yml` (Build Custom SUSFS Kernel) | Manual | Same build as `build.yml`, but every setting can be overridden with an input | build image, notify |
+| `build.yml` (Build SUSFS Kernel) | Manual | Builds a device (violet by default) with SUSFS in two variants: `ksu` is BakaSU with SuSFS, `nsu` is a non-root build without SuSFS. Every setting can be overridden with an input | build image, notify, prune-ccache |
 | `build-env.yml` (Build Env Image) | Manual; on changes to `docker/build-env/` or this file | Builds and pushes the build image with the apt packages and `clang-r596125` preinstalled | none (Dockerfile) |
 | `automated.yml` (Automated Build for Violet) | Manual, or called by `release.yml` | Fixed-target kernel and Manager build for violet, with Telegram delivery. Syncs KernelSU first, then builds the Manager from the synced source | build image, clang (fallback), ksu-setup, compile, prune-ccache, notify, AnyKernel3 |
-| `kernel.yml` (Kernel Build (main)) | Manual | Standalone kernel build from any source. No Manager APK | build image, clang (fallback), ksu-setup, compile, prune-ccache, notify, AnyKernel3 |
-| `kernel_build.yml` (Kernel Build (extra)) | Manual | Same as `kernel.yml`, plus a KernelSU branch choice and raw outputs for testing | build image, clang (fallback), ksu-setup, compile, prune-ccache, notify, AnyKernel3 |
-| `Kernel_&_Manager_build.yml` (Kernel & Manager Build) | Manual | Kernel and Manager APK together, both sent to Telegram | build image, clang (fallback), compile, prune-ccache, notify, AnyKernel3 |
+| `kernel.yml` (Kernel Build) | Manual | Standalone kernel build from any source, with a KernelSU branch choice. Raw kernel images are an optional upload. No Manager APK | build image, clang (fallback), ksu-setup, compile, prune-ccache, notify, AnyKernel3 |
 | `build-manager.yml` (Build Manager) | Manual; called by `automated.yml` | Builds the KernelSU Manager APK and `ksud` binaries | none (self-contained) |
 | `release.yml` (Release) | Tag `v*`; manual; called | Publishes a GitHub Release from the automated build | none (calls `automated.yml`) |
 | `sync.yml` (Sync Upstream Updates) | Manual, or called by `automated.yml` at the start of each run | Keeps the KernelSU fork aligned with upstream | none |

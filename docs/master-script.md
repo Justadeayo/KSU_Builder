@@ -45,13 +45,12 @@ bash scripts/master.sh help
 
 | Workflow | Commands used |
 | :--- | :--- |
-| `build.yml`, `build-custom.yml` | none |
-| `automated.yml`, `kernel.yml`, `kernel_build.yml` | `clang` (only for a Clang version the image lacks), `ksu-setup`, `compile`, `prune-ccache`, `anykernel` |
-| `Kernel_&_Manager_build.yml` | `clang` (only for a Clang version the image lacks), `compile`, `prune-ccache`, `anykernel` |
+| `build.yml` | `prune-ccache` |
+| `automated.yml`, `kernel.yml` | `clang` (only for a Clang version the image lacks), `ksu-setup`, `compile`, `prune-ccache`, `anykernel` |
 
 ## Still inline
 
-- The Manager APK delivery in `Dispatch` (`automated.yml`, `Kernel_&_Manager_build.yml`), because it depends on the artifacts each job produces.
+- The Manager APK delivery in `Dispatch` (`automated.yml`), because it depends on the artifacts each job produces.
 - The `build-manager.yml` steps.
 - The job-level setup each kernel workflow has: checkout, swap, ccache and the source clone. These need GitHub Actions' own steps or a composite action, so a shell script can't replace them.
 
