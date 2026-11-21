@@ -1,152 +1,190 @@
-XCalibur-XF SUSFS Builder License
-Version 1.2, 2026-10-28
+================================================================================
+                        XCALIBUR-XF SUSFS BUILDER LICENSE
+                          Version 1.2  |  2026-10-28
+================================================================================
 
 Copyright (C) 2026 Justadeayo. All rights reserved.
 
-This license applies to the dev branch of the KSU_Builder repository,
-which builds the XCalibur-XF kernel with SUSFS.
-Use with caution and at your own risk.
+NOTICE:
+This license applies to the dev branch of the KSU_Builder repository, which
+builds the XCalibur-XF kernel with SUSFS. Use with caution and at your own risk.
 
-                         TERMS AND CONDITIONS
+--------------------------------------------------------------------------------
+                              TERMS AND CONDITIONS
+--------------------------------------------------------------------------------
 
-1. Ownership
+1. OWNERSHIP
 
-   1.1 The workflows, build scripts, configuration files and
-   documentation on the dev branch that were written for this
-   repository are the property of Justadeayo. All rights are reserved
-   except as granted in this license.
+   1.1 Original Works
+       The workflows, build scripts, configuration files, and documentation on
+       the dev branch that were written for this repository are the property of
+       Justadeayo. All rights are reserved except as granted in this license.
 
-   1.2 Files copied or adapted from third-party projects are not owned
-   by this license. They keep their own license. Currently:
+   1.2 Third-Party Adapted Works
+       Files copied or adapted from third-party projects are not owned by this
+       license. They keep their own license. Currently:
 
-       scripts/common.sh, scripts/compile.sh, scripts/env.sh,
-       scripts/ksu.sh, scripts/variant.sh, config.env,
-       .github/workflows/build.yml
+         - scripts/common.sh
+         - scripts/compile.sh
+         - scripts/env.sh
+         - scripts/ksu.sh
+         - scripts/variant.sh
+         - config.env
+         - .github/workflows/build.yml
 
-       Origin:  Zincore Forge by yureixen
-                https://github.com/yureixen/zincore-forge
-       License: GPL-2.0 (see LICENSE-GPL-2.0)
+       Origin  : Zincore Forge by yureixen
+                 [https://github.com/yureixen/zincore-forge](https://github.com/yureixen/zincore-forge)
+       License : GPL-2.0 (see LICENSE-GPL-2.0)
 
-   Each of these files carries a GPL-2.0 header comment. Where this
-   license and a file's own license differ, the file's own license
-   applies to that file.
+       Each of these files carries a GPL-2.0 header comment. Where this license
+       and a file's own license differ, the file's own license applies to that
+       file.
 
-2. Permitted Use
+--------------------------------------------------------------------------------
+
+2. PERMITTED USE
 
    You may:
+     (a) test the workflows and build automation;
+     (b) evaluate and modify them for your own kernel source, device, and
+         toolchain;
+     (c) fork the branch and change the workflows for personal use; and
+     (d) open pull requests with improvements.
 
-   (a) test the workflows and build automation;
-   (b) evaluate and modify them for your own kernel source, device and
-       toolchain;
-   (c) fork the branch and change the workflows for personal use; and
-   (d) open pull requests with improvements.
+--------------------------------------------------------------------------------
 
-3. Conditions
+3. CONDITIONS
 
-   If you use or distribute this branch, you agree to:
+   3.1 Required Obligations
+       If you use or distribute this branch, you agree to:
+         (a) test thoroughly on your own hardware before using any build in
+             production;
+         (b) back up your data before flashing any artifact built from this
+             branch;
+         (c) verify compatibility with your kernel source, device, and
+             toolchain;
+         (d) keep the credits in Section 8 in any fork or redistribution; and
+         (e) keep this license text intact in any redistribution of the files
+             it covers.
 
-   (a) test thoroughly on your own hardware before using any build in
-       production;
-   (b) back up your data before flashing any artifact built from this
-       branch;
-   (c) verify compatibility with your kernel source, device and
-       toolchain;
-   (d) keep the credits in section 8 in any fork or redistribution; and
-   (e) keep this license text intact in any redistribution of the
-       files it covers.
+   3.2 Restrictions
+       You may not:
+         (a) claim this branch, or any part of it written for this repository,
+             as your own original work;
+         (b) remove or change the copyright notice; or
+         (c) present modified versions as official or production-ready.
 
-   You may not:
+--------------------------------------------------------------------------------
 
-   (a) claim this branch, or any part of it written for this
-       repository, as your own original work;
-   (b) remove or change the copyright notice; or
-   (c) present modified versions as official or production-ready.
+4. NO WARRANTY
 
-4. No Warranty
-
-   THE DEV BRANCH IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT,
-   PERFORMANCE, RELIABILITY AND STABILITY.
+   THE DEV BRANCH IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, PERFORMANCE, RELIABILITY
+   AND STABILITY.
 
    The workflows and scripts are experimental and may:
+     (a) produce broken or non-working builds;
+     (b) have incomplete error handling;
+     (c) fail without a clear error message;
+     (d) change without notice; or
+     (e) use a large amount of GitHub Actions resources.
 
-   (a) produce broken or non-working builds;
-   (b) have incomplete error handling;
-   (c) fail without a clear error message;
-   (d) change without notice; or
-   (e) use a large amount of GitHub Actions resources.
+--------------------------------------------------------------------------------
 
-5. Limitation of Liability
+5. LIMITATION OF LIABILITY
 
-   TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE OWNER AND CONTRIBUTORS
-   ARE NOT LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-   CONSEQUENTIAL OR PUNITIVE DAMAGES ARISING FROM USE OF THIS BRANCH,
-   INCLUDING:
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE OWNER AND CONTRIBUTORS ARE NOT
+   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
+   PUNITIVE DAMAGES ARISING FROM USE OF THIS BRANCH, INCLUDING:
+     (a) bricked devices or data loss;
+     (b) failed kernel builds or packaging;
+     (c) missed or misleading notifications (for example, Telegram);
+     (d) resource exhaustion or billing from GitHub Actions; and
+     (e) incompatibility with your kernel source or device.
 
-   (a) bricked devices or data loss;
-   (b) failed kernel builds or packaging;
-   (c) missed or misleading notifications (for example, Telegram);
-   (d) resource exhaustion or billing from GitHub Actions; and
-   (e) incompatibility with your kernel source or device.
+--------------------------------------------------------------------------------
 
-6. Artifacts
+6. ARTIFACTS
 
    Artifacts built with this branch (kernel ZIPs, binaries) are:
+     (a) provided as-is and tested only at the time of building;
+     (b) not signed with production certificates;
+     (c) not guaranteed to be secure or free of vulnerabilities; and
+     (d) subject to change between builds.
 
-   (a) provided as-is and tested only at the time of building;
-   (b) not signed with production certificates;
-   (c) not guaranteed to be secure or free of vulnerabilities; and
-   (d) subject to change between builds.
+--------------------------------------------------------------------------------
 
-7. Third-Party Software
+7. THIRD-PARTY SOFTWARE
 
    This branch uses or integrates with, among others:
 
-   (a) KernelSU          https://github.com/tiann/KernelSU        (GPL-2.0)
-   (b) AnyKernel3        https://github.com/osm0sis/AnyKernel3
-   (c) AOSP Clang        https://android.googlesource.com/platform/prebuilts/clang/
-   (d) GitHub Actions    https://github.com/features/actions
+     (a) KernelSU
+         URL     : [https://github.com/tiann/KernelSU](https://github.com/tiann/KernelSU)
+         License : GPL-2.0
 
-   Each project is governed by its own license and terms. You must also
-   comply with your kernel source's license and the Android Open Source
-   Project terms where they apply.
+     (b) AnyKernel3
+         URL     : [https://github.com/osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3)
+         License : GPL-2.0
 
-8. Credits
+     (c) AOSP Clang
+         URL     : [https://android.googlesource.com/platform/prebuilts/clang/](https://android.googlesource.com/platform/prebuilts/clang/)
 
-   The following people and projects are credited. Credit is an
-   acknowledgment only. It does not transfer any license or ownership.
+     (d) GitHub Actions
+         URL     : [https://github.com/features/actions](https://github.com/features/actions)
 
-   (a) yureixen, for Zincore Forge, the build framework that the
-       GPL-2.0 files above are based on.
-   (b) backslashxx, for the KernelSU non-GKI setup this branch builds on.
-   (c) JackA1ltman, for the SUSFS non-GKI patch set.
-   (d) simonpunk, for SUSFS.
-   (e) tiann, for KernelSU.
-   (f) osm0sis, for AnyKernel3.
+   Each project is governed by its own license and terms. You must also comply
+   with your kernel source's license and the Android Open Source Project terms
+   where they apply.
 
-9. Support
+--------------------------------------------------------------------------------
 
-   Support is provided on a best-effort, volunteer basis. Reports are
-   welcome. Include your device, kernel source, toolchain and full
-   workflow logs. Reporting does not guarantee a fix.
+8. CREDITS
 
-10. Stable Builds
+   The following people and projects are credited. Credit is an acknowledgment
+   only. It does not transfer any license or ownership.
 
-    For stable, production-oriented builds, use the main branch and
-    official releases, and review the upstream licenses.
+     (a) yureixen     - For Zincore Forge, the build framework that the GPL-2.0
+                        files above are based on.
+     (b) backslashxx  - For the KernelSU non-GKI setup this branch builds on.
+     (c) JackA1ltman  - For the SUSFS non-GKI patch set.
+     (d) simonpunk    - For SUSFS.
+     (e) tiann        - For KernelSU.
+     (f) osm0sis      - For AnyKernel3.
 
-11. Version History
+--------------------------------------------------------------------------------
 
-    1.2   2026-10-28   Renamed to XCalibur-XF. Ownership in the author's
-                       name. Credits moved to a separate section.
-    1.1   2026-10-28   Restructured. Separated third-party GPL-2.0 files.
-                       Removed unverified certification statement.
-    1.0   2026-07-26   Initial dev branch license.
+9. SUPPORT
 
-12. Contact
+   Support is provided on a best-effort, volunteer basis. Reports are welcome.
+   Include your device, kernel source, toolchain, and full workflow logs.
+   Reporting does not guarantee a fix.
 
-    Open an issue on the repository. For kernel-level questions, see the
-    upstream KernelSU project. For build details, see README.md.
+--------------------------------------------------------------------------------
 
-                              END OF TERMS
+10. STABLE BUILDS
+
+    For stable, production-oriented builds, use the main branch and official
+    releases, and review the upstream licenses.
+
+--------------------------------------------------------------------------------
+
+11. VERSION HISTORY
+
+    1.2  |  2026-10-28  |  Renamed to XCalibur-XF. Ownership in the author's
+                           name. Credits moved to a separate section.
+    1.1  |  2026-10-28  |  Restructured. Separated third-party GPL-2.0 files.
+                           Removed unverified certification statement.
+    1.0  |  2026-07-26  |  Initial dev branch license.
+
+--------------------------------------------------------------------------------
+
+12. CONTACT
+
+    - Repository Issues      : Open an issue on the repository.
+    - Kernel-Level Questions : See the upstream KernelSU project.
+    - Build Details          : See README.md.
+
+================================================================================
+                                  END OF TERMS
+================================================================================
