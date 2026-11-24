@@ -1,0 +1,48 @@
+From c0308b4901f3fc0bd3ef952266efb19e7b009e01 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Fri, 17 Apr 2026 13:40:39 +0800
+Subject: [PATCH] kernel: ksud: read: move second-stage apply to read hook
+
+---
+ kernel/runtime/ksud_integration.c | 9 +++++++++
+ kernel/selinux/rules.c            | 4 ++++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/kernel/runtime/ksud_integration.c b/kernel/runtime/ksud_integration.c
+index 9c017c43..51f7e9c7 100644
+--- a/kernel/runtime/ksud_integration.c
++++ b/kernel/runtime/ksud_integration.c
+@@ -328,6 +328,15 @@ static noinline void ksu_install_rc_hook(struct file *file)
+ 	rc_hooked = true;
+ 	stop_init_rc_hook();
+ 
++	// since we already have domains, selinux is initialized, we can apply rules and shit
++	// https://github.com/LineageOS/android_system_core_old/blob/ecbcdafc3/init/init.cpp#L669
++	pr_info("%s: init.rc second stage, fp: 0x%lx \n", __func__, (uintptr_t)file);
++	apply_kernelsu_rules();
++	cache_sid();
++	setup_ksu_cred();
++	ksu_grab_init_session_keyring();
++	ksu_feature_apply_forced();
++
+ 	// now we can sure that the init process is reading
+ 	// `/system/etc/init/init.rc`
+ 
+diff --git a/kernel/selinux/rules.c b/kernel/selinux/rules.c
+index d9b57e35..9d6f361b 100644
+--- a/kernel/selinux/rules.c
++++ b/kernel/selinux/rules.c
+@@ -116,6 +116,10 @@ static int apply_kernelsu_rules_fn(void *ptr)
+ 	// our ksud triggered by init
+ 	ksu_allow(db, "init", KERNEL_SU_DOMAIN, ALL, ALL);
+ 
++	// restored from https://github.com/tiann/KernelSU/pull/3031 
++	ksu_allow(db, "init", "adb_data_file", "file", ALL);
++	ksu_allow(db, "init", "adb_data_file", "dir", ALL); // #1289
++
+ 	// copied from Magisk rules
+ 	// suRights
+ 	ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "dir", "search");
+-- 
+2.43.0
+

@@ -1,0 +1,25 @@
+From 466518b053f3cfd59542545ea5caf464c07ae42b Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Wed, 27 May 2026 23:06:04 +0800
+Subject: [PATCH] kernel: ksud: read: add fallback to /init.rc
+
+---
+ kernel/runtime/ksud_integration.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/kernel/runtime/ksud_integration.c b/kernel/runtime/ksud_integration.c
+index 9178401a..0a349706 100644
+--- a/kernel/runtime/ksud_integration.c
++++ b/kernel/runtime/ksud_integration.c
+@@ -260,7 +260,7 @@ static bool is_init_rc(struct file *fp)
+ 		return false;
+ 	}
+ 
+-	if (strcmp(dpath, "/system/etc/init/hw/init.rc")) {
++	if (!!strcmp(dpath, "/init.rc") && !!strcmp(dpath, "/system/etc/init/hw/init.rc")) {
+ 		return false;
+ 	}
+ 
+-- 
+2.43.0
+
