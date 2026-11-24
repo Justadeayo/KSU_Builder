@@ -1,0 +1,203 @@
+From 8de91aac92a21082801c2ee23df7e1f2e831e068 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sat, 25 Apr 2026 09:16:38 +0800
+Subject: [PATCH] kernel: pkg_observer: initialize for downstream
+
+---
+ kernel/hook/lsm_hooks_list.c        |   1 +
+ kernel/hook/lsm_hooks_manual.c      |   1 +
+ kernel/hook/lsm_hooks_static.c      |   3 +
+ kernel/hook/lsm_hooks_ultralegacy.c |   1 +
+ kernel/ksu.c                        |   1 +
+ kernel/manager/pkg_observer.c       | 110 ++++++++++++++++++++++++++++
+ 6 files changed, 117 insertions(+)
+ create mode 100644 kernel/manager/pkg_observer.c
+
+diff --git a/kernel/hook/lsm_hooks_list.c b/kernel/hook/lsm_hooks_list.c
+index 28c06967..f6143aa2 100644
+--- a/kernel/hook/lsm_hooks_list.c
++++ b/kernel/hook/lsm_hooks_list.c
+@@ -22,6 +22,7 @@ static __nocfi int ksu_task_fix_setuid(struct cred *new, const struct cred *old,
+ static int (*inode_rename_fn)(struct inode *old_inode, struct dentry *old_dentry, struct inode *new_inode, struct dentry *new_dentry) __read_mostly = nullptr;
+ static __nocfi int ksu_inode_rename(struct inode *old_inode, struct dentry *old_dentry, struct inode *new_inode, struct dentry *new_dentry)
+ {
++	ksu_rename_observer(old_dentry, new_dentry);
+ 	return inode_rename_fn(old_inode, old_dentry, new_inode, new_dentry);
+ }
+ 
+diff --git a/kernel/hook/lsm_hooks_manual.c b/kernel/hook/lsm_hooks_manual.c
+index 9b99b8e5..45fdf650 100644
+--- a/kernel/hook/lsm_hooks_manual.c
++++ b/kernel/hook/lsm_hooks_manual.c
+@@ -14,6 +14,7 @@
+ int ksu_inode_rename(struct inode *old_inode, struct dentry *old_dentry,
+ 			    struct inode *new_inode, struct dentry *new_dentry)
+ {
++	ksu_rename_observer(old_dentry, new_dentry);
+ 	return 0;
+ }
+ 
+diff --git a/kernel/hook/lsm_hooks_static.c b/kernel/hook/lsm_hooks_static.c
+index c095777d..f61976aa 100644
+--- a/kernel/hook/lsm_hooks_static.c
++++ b/kernel/hook/lsm_hooks_static.c
+@@ -26,6 +26,8 @@ extern int vfs_rename(struct renamedata *rd);
+ static int ksu_vfs_rename(struct renamedata *rd)
+ {
+ 	int ret = vfs_rename(rd);
++	if (!ret)
++		ksu_rename_observer(rd->old_dentry, rd->new_dentry);
+ 	return ret;
+ }
+ #endif
+@@ -33,6 +35,7 @@ static int ksu_vfs_rename(struct renamedata *rd)
+ extern int security_inode_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags);
+ static int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags)
+ {
++	ksu_rename_observer(old_dentry, new_dentry);
+ 	return security_inode_rename(old_dir, old_dentry, new_dir, new_dentry, flags);
+ }
+ 
+diff --git a/kernel/hook/lsm_hooks_ultralegacy.c b/kernel/hook/lsm_hooks_ultralegacy.c
+index 12038fcb..9b47a87d 100644
+--- a/kernel/hook/lsm_hooks_ultralegacy.c
++++ b/kernel/hook/lsm_hooks_ultralegacy.c
+@@ -20,6 +20,7 @@ static int (*orig_inode_rename) (struct inode *old_dir, struct dentry *old_dentr
+ static int ksu_inode_rename(struct inode *old_inode, struct dentry *old_dentry,
+ 			    struct inode *new_inode, struct dentry *new_dentry)
+ {
++	ksu_rename_observer(old_dentry, new_dentry);
+ 	return orig_inode_rename(old_inode, old_dentry, new_inode, new_dentry);
+ }
+ 
+diff --git a/kernel/ksu.c b/kernel/ksu.c
+index fbff4dbc..05bf82ae 100644
+--- a/kernel/ksu.c
++++ b/kernel/ksu.c
+@@ -83,6 +83,7 @@
+ #include "policy/app_profile.c"
+ #include "policy/feature.c"
+ #include "manager/apk_sign.c"
++#include "manager/pkg_observer.c"
+ #include "manager/throne_tracker.c"
+ 
+ #include "supercall/perm.c"
+diff --git a/kernel/manager/pkg_observer.c b/kernel/manager/pkg_observer.c
+new file mode 100644
+index 00000000..f0d469fb
+--- /dev/null
++++ b/kernel/manager/pkg_observer.c
+@@ -0,0 +1,110 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++/*
++ * ! this is on inode_rename, NOT fsnotify
++ * we have access to LSM and overhead is way lower.
++ * we watch one file, check ifs on the same parent inode.
++ * a few int compare and a ptr compare. thats it.
++ * as for throne tracker, we just async it by hand
++ * by offloading it to a kthread.
++ * reuses code from: https://github.com/tiann/KernelSU/blob/v1.0.5/kernel/core_hook.c#L188
++ */
++
++static void *system_dir_inode_ptr = nullptr;
++
++static noinline void ksu_grab_data_system_inode()
++{
++	struct path path;
++	int ret = kern_path("/data/system", LOOKUP_FOLLOW, &path);
++	if (ret) {
++		pr_info("renameat: /data/system not ready? ret: (%d)\n", ret);
++		return;
++	}
++
++	system_dir_inode_ptr = (void *)d_inode(path.dentry);
++	pr_info("renameat: cached /data/system d_inode: 0x%lx\n", system_dir_inode_ptr);
++	path_put(&path);
++}
++
++static noinline void ksu_rename_observer_slow(struct dentry *old_dentry, struct dentry *new_dentry)
++{
++	system_dir_inode_ptr = nullptr; // reset cached inode
++
++	char path[128];
++	char *buf = dentry_path_raw(new_dentry, path, sizeof(path) - 1);
++	if (IS_ERR(buf)) {
++		pr_err("dentry_path_raw failed.\n");
++		return;
++	}
++
++	if (!strnstr(buf, "/system/packages.list", 128))
++		return;
++
++	pr_info("renameat: %s -> %s, new path: %s\n", old_dentry->d_iname, new_dentry->d_iname, buf);
++	track_throne(false);
++	return;
++}
++
++static inline void ksu_rename_observer(struct dentry *old_dentry, struct dentry *new_dentry)
++{
++	// skip kernel threads
++	if (!current->mm)
++		return;
++
++	if (!old_dentry || !new_dentry)
++		return;
++
++	// skip non system uid
++	if (likely(current_uid().val != 1000))
++		return;
++
++	constexpr unsigned char plist[] = "packages.list";
++
++	// HASH_LEN_DECLARE see dcache.h
++	if (likely(new_dentry->d_name.len != sizeof(plist) - 1  ))
++		return;
++
++	// /data/system/packages.list.tmp -> /data/system/packages.list
++	if (likely(!!memcmp_inline(new_dentry->d_iname, plist, sizeof(plist) - 1 )))
++		return;
++
++	// cache dir inode, we try to go for fast path, lockless
++	if (unlikely(!system_dir_inode_ptr))
++		ksu_grab_data_system_inode();
++
++	if (unlikely(!system_dir_inode_ptr))
++		goto slow_path;
++
++	if (unlikely(!new_dentry->d_parent || !new_dentry->d_parent->d_inode))
++		goto slow_path;
++
++	/*
++	 * fallback to slow path, but this should NOT change unless someone overlays /data/system
++	 * but then again maybe https://github.com/tiann/KernelSU/pull/2633#discussion_r2141740346
++	 * but /data is casefolded, overlaying is really really unlikely
++	 * we self heal this thing, so on enxt run, it will try to grab d inode again
++	 * alternatively we can use packages.list inode change as trigger too, however,
++	 * we need to save last state. more writes.
++	 */
++	if (unlikely((void *)new_dentry->d_parent->d_inode != system_dir_inode_ptr))
++		goto slow_path;
++
++	pr_info("renameat: %s -> %s, /data/system d_inode: 0x%lx \n", old_dentry->d_iname, new_dentry->d_iname, system_dir_inode_ptr);
++	track_throne(false);
++	return;
++
++slow_path:
++	ksu_rename_observer_slow(old_dentry, new_dentry);
++	return;
++}
+-- 
+2.43.0
+

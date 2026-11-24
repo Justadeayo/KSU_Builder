@@ -1,0 +1,285 @@
+From 0b8620200593db7fe94a76dd34fda61406aeea7b Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Thu, 1 Jan 2026 09:42:02 +0800
+Subject: [PATCH] kernel: lsm_hook: handle ksu_install_rc_hook
+
+---
+ kernel/hook/lsm_hooks_list.c        | 23 ++++++++
+ kernel/hook/lsm_hooks_manual.c      | 10 ++++
+ kernel/hook/lsm_hooks_static.c      | 47 ++++++++++++++++
+ kernel/hook/lsm_hooks_ultralegacy.c | 23 ++++++++
+ kernel/runtime/ksud_integration.c   | 83 ++++++++++++++++++++++++++++-
+ 5 files changed, 185 insertions(+), 1 deletion(-)
+
+diff --git a/kernel/hook/lsm_hooks_list.c b/kernel/hook/lsm_hooks_list.c
+index bbef4201..628ccb91 100644
+--- a/kernel/hook/lsm_hooks_list.c
++++ b/kernel/hook/lsm_hooks_list.c
+@@ -30,6 +30,15 @@ static __nocfi int ksu_inode_rename(struct inode *old_inode, struct dentry *old_
+ 	return inode_rename_fn(old_inode, old_dentry, new_inode, new_dentry);
+ }
+ 
++static int (*file_permission_fn)(struct file *file, int mask) __read_mostly = nullptr;
++static __nocfi int ksu_file_permission(struct file *file, int mask)
++{
++	if (unlikely(ksu_vfs_read_hook))
++		ksu_install_rc_hook(file);
++
++	return file_permission_fn(file, mask);
++}
++
+ /**
+  *
+  * Instead of using list/hlist abstractions and shit, since we know these things exist
+@@ -178,9 +187,23 @@ do {												\
+ 		ksu_bruteforce_lsm_slot(&__dummy, (uintptr_t)hook_name##_fn, #hook_name);	\
+ } while (0)
+ 
++static int ksu_restore_file_permission(void *data)
++{
++	set_user_nice(current, 19); // low prio
++	while (*(volatile bool *)&ksu_vfs_read_hook)
++		msleep(5000);
++	LSM_HACK_RESTORE(file_permission);
++	return 0;
++}
+ 
+ static __init void ksu_lsm_hook_init(void)
+ {
+ 	LSM_HACK_INIT(task_fix_setuid, ksu_task_fix_setuid);
+ 	LSM_HACK_INIT(inode_rename, ksu_inode_rename);
++
++#if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
++	LSM_HACK_INIT(file_permission, ksu_file_permission);
++	kthread_run(ksu_restore_file_permission, NULL, "kthread");
++#endif
++
+ }
+diff --git a/kernel/hook/lsm_hooks_manual.c b/kernel/hook/lsm_hooks_manual.c
+index 35ef3b50..6c54590a 100644
+--- a/kernel/hook/lsm_hooks_manual.c
++++ b/kernel/hook/lsm_hooks_manual.c
+@@ -32,6 +32,16 @@ int ksu_bprm_check(struct linux_binprm *bprm)
+ 	return 0;
+ }
+ 
++int ksu_file_permission(struct file *file, int mask)
++{
++#if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
++	if (unlikely(ksu_vfs_read_hook))
++		ksu_install_rc_hook(file);
++#endif
++
++	return 0;
++}
++
+ static void __init ksu_lsm_hook_init(void)
+ {
+ 	pr_info("%s: Automated LSM hooking disabled. Make sure manual security hooks are implemented!\n", __func__);
+diff --git a/kernel/hook/lsm_hooks_static.c b/kernel/hook/lsm_hooks_static.c
+index beb47c90..40eeeee5 100644
+--- a/kernel/hook/lsm_hooks_static.c
++++ b/kernel/hook/lsm_hooks_static.c
+@@ -78,6 +78,45 @@ asmlinkage long hook_armeabi_setresuid(const struct pt_regs *regs)
+ }
+ #endif
+ 
++#if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
++#ifdef CONFIG_COMPAT
++#define __ARMEABI_read		3
++extern long __arm64_sys_read(const struct pt_regs *regs);
++static syscall_fn_t armeabi_read __read_mostly = nullptr;
++asmlinkage long hook_armeabi_read(const struct pt_regs *regs)
++{
++	unsigned int fd = (unsigned int)regs->regs[0];	
++
++	ksu_handle_sys_read_fd(fd);
++	return __arm64_sys_read(regs);
++}
++#endif // CONFIG_COMPAT
++#define __AARCH64_read		63
++extern long __arm64_sys_read(const struct pt_regs *regs);
++static syscall_fn_t aarch64_read __read_mostly = nullptr;
++asmlinkage long hook_aarch64_read(const struct pt_regs *regs)
++{
++	unsigned int fd = (unsigned int)regs->regs[0];
++
++	ksu_handle_sys_read_fd(fd);
++	return __arm64_sys_read(regs);
++}
++static int ksu_syscall_table_restore(void *data)
++{
++	set_user_nice(current, 19); // low prio
++loop_start:
++	msleep(1000);
++	if (*(volatile bool *)&ksu_vfs_read_hook)
++		goto loop_start;
++
++#if defined(CONFIG_COMPAT)
++	restore_syscall((void *)&armeabi_read, __ARMEABI_read, (void *)hook_armeabi_read, compat_sct);
++#endif
++	restore_syscall((void *)&aarch64_read, __AARCH64_read, (void *)hook_aarch64_read, native_sct);
++	return 0;
++}
++#endif // !CONFIG_KSU_TAMPER_SYSCALL_TABLE && !CONFIG_KSU_HACK_ARM64_BRANCH_LINK
++
+ #define __ksym_size(callsite)	ksu_get_ksym_size(callsite, (256 * sizeof(uint32_t)))
+ static void print_branch_targets(uintptr_t callsite, uintptr_t symbol_addr, char *hook_name)
+ {
+@@ -128,6 +167,14 @@ rename_hook_done:
+ 	} else
+ 		pr_info("LSM: security_task_fix_setuid: ret %d \n", ret);
+ 
++#if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
++#ifdef CONFIG_COMPAT
++	replace_syscall((void *)&armeabi_read, __ARMEABI_read, (void *)hook_armeabi_read, compat_sct);
++#endif
++	replace_syscall((void *)&aarch64_read, __AARCH64_read, (void *)hook_aarch64_read, native_sct);
++	kthread_run(ksu_syscall_table_restore, NULL, "kthread");
++#endif // !CONFIG_KSU_TAMPER_SYSCALL_TABLE && !CONFIG_KSU_HACK_ARM64_BRANCH_LINK
++
+ }
+ 
+ #undef patch_arm64_branches_trampolined
+diff --git a/kernel/hook/lsm_hooks_ultralegacy.c b/kernel/hook/lsm_hooks_ultralegacy.c
+index 82a098b2..6a87d344 100644
+--- a/kernel/hook/lsm_hooks_ultralegacy.c
++++ b/kernel/hook/lsm_hooks_ultralegacy.c
+@@ -34,6 +34,15 @@ static int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int fla
+ 	return orig_task_fix_setuid(new, old, flags);
+ }
+ 
++static int (*orig_file_permission) (struct file *file, int mask) __read_mostly = nullptr;
++static int ksu_file_permission(struct file *file, int mask)
++{
++	if (unlikely(ksu_vfs_read_hook))
++		ksu_install_rc_hook(file);
++
++	return orig_file_permission(file, mask);
++}
++
+ static __nocfi bool verify_selinux_cred_free(void *fn_ptr)
+ {
+ 	if (!fn_ptr)
+@@ -277,10 +286,24 @@ do {												\
+ 		#lsm_name, (uintptr_t)&ops->lsm_name, (uintptr_t)ops->lsm_name, ret);		\
+ } while (0)
+ 
++static int ksu_restore_file_permission(void *data)
++{
++	set_user_nice(current, 19); // low prio
++	while (*(volatile bool *)&ksu_vfs_read_hook)
++		msleep(5000);
++	LSM_HACK_RESTORE(file_permission);
++	return 0;
++}
++
+ static inline void ksu_register_lsm_hook(void)
+ {
+ 	LSM_HACK_INIT(task_fix_setuid, ksu_task_fix_setuid);
+ 	LSM_HACK_INIT(inode_rename, ksu_inode_rename);
++
++#if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
++	LSM_HACK_INIT(file_permission, ksu_file_permission);
++	kthread_run(ksu_restore_file_permission, nullptr, "kthread");
++#endif
+ }
+ 
+ static void __init ksu_lsm_hook_init(void)
+diff --git a/kernel/runtime/ksud_integration.c b/kernel/runtime/ksud_integration.c
+index 2723f806..9178401a 100644
+--- a/kernel/runtime/ksud_integration.c
++++ b/kernel/runtime/ksud_integration.c
+@@ -240,7 +240,88 @@ append_module_rc:
+ 	return ret;
+ }
+ 
+-// TODO: add init.rc handling here!
++static bool is_init_rc(struct file *fp)
++{
++	// we are only interested in `init-like` process
++	// catch generic_init, init
++	if (!strstr(current->comm, "init")) {
++		return false;
++	}
++
++	if (!d_is_reg(fp->f_path.dentry)) {
++		return false;
++	}
++
++	// Bind mounts retain the source dentry name, so match the mounted path.
++	char path[256];
++	char *dpath = d_path(&fp->f_path, path, sizeof(path));
++
++	if (IS_ERR(dpath)) {
++		return false;
++	}
++
++	if (strcmp(dpath, "/system/etc/init/hw/init.rc")) {
++		return false;
++	}
++
++	pr_info("%s: %s \n", __func__, dpath);
++
++	return true;
++}
++
++static noinline void ksu_install_rc_hook(struct file *file)
++{
++	if (!is_init_rc(file)) {
++		return;
++	}
++
++	// we only process the first read
++	static bool rc_hooked = false;
++	if (rc_hooked) {
++		// we don't need these hooks, unregister it!
++		return;
++	}
++	rc_hooked = true;
++	stop_init_rc_hook();
++
++	// now we can sure that the init process is reading
++	// `/system/etc/init/init.rc`
++
++	load_module_rc_once();
++
++	pr_info("read init.rc, comm: %s, rc_count: %zu, module_rc: %zu\n", current->comm, ksu_rc_len, module_rc_len);
++
++	// Now we need to proxy the read and modify the result!
++	// But, we can not modify the file_operations directly, because it's in read-only memory.
++	// We just replace the whole file_operations with a proxy one.
++	memcpy(&fops_proxy, file->f_op, sizeof(struct file_operations));
++	orig_read = file->f_op->read;
++	if (orig_read) {
++		fops_proxy.read = read_proxy;
++	}
++	orig_read_iter = file->f_op->read_iter;
++	if (orig_read_iter) {
++		fops_proxy.read_iter = read_iter_proxy;
++	}
++	// replace the file_operations
++	file->f_op = &fops_proxy;
++
++	return;
++}
++
++// for sys_read kp / syscall table
++static noinline void ksu_handle_sys_read_fd(unsigned int fd)
++{
++	if (likely(!ksu_vfs_read_hook))
++		return;
++
++	struct file *file = fget(fd);
++	if (!file) {
++		return;
++	}
++	ksu_install_rc_hook(file);
++	fput(file);
++}
+ 
+ static void stop_init_rc_hook()
+ {
+-- 
+2.43.0
+
