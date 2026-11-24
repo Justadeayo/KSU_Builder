@@ -1,0 +1,80 @@
+From e06fca7370058fc93f28800cc06fdfdea78942fc Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Fri, 12 Dec 2025 22:15:55 +0800
+Subject: [PATCH] kernel: tiny_sulog: wire up timestamped ringbuffer
+
+---
+ kernel/feature/sucompat.c            | 9 +++++++++
+ kernel/hook/branch_link_hook_arm64.c | 1 +
+ kernel/supercall/dispatch.c          | 2 ++
+ 3 files changed, 12 insertions(+)
+
+diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
+index bfc98097..604f3f5b 100644
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -313,6 +313,7 @@ static __always_inline void ksu_sucompat_user_execve(const char __user **filenam
+ 	if (!!escape_with_root_profile())
+ 		return;
+ 
++	write_sulog('x');
+ 	ksu_sulog_emit_sucompat_post(nullptr, *filename_user, argv);
+ 	if (!ksyscall_execve_ksud(syscall_name, argv, envp))
+ 		return;
+@@ -331,6 +332,11 @@ static __always_inline void ksu_sucompat_user_common(const char __user **filenam
+ 	if (!is_user_filename_su(filename_user))
+ 		return;
+ 
++	if (!__builtin_strcmp(syscall_name, "sys_faccessat"))
++		write_sulog('a');
++	if (!__builtin_strcmp(syscall_name, "sys_newfstatat"))
++		write_sulog('s');
++
+ 	pr_info("su_compat: %s su->sh!%s\n", syscall_name, (is_compat_task()) ? " [compat]" : "" );
+ 	*filename_user = sh_user_path();
+ 	return;
+@@ -413,6 +419,7 @@ static __always_inline void ksu_sucompat_kernel_execve(int *restrict fd, void **
+ 	if (!!escape_with_root_profile())
+ 		return;
+ 
++	write_sulog('x');
+ 	ksu_sulog_emit_sucompat_post(*filename_ptr, nullptr, u_argv);
+ 	if (!ksyscall_execve_ksud(function_name, u_argv, u_envp))
+ 		return;
+@@ -516,6 +523,8 @@ void __init ksu_sucompat_init()
+ 	if (ksu_register_feature_handler(&su_compat_handler)) {
+ 		pr_err("Failed to register su_compat feature handler\n");
+ 	}
++
++	tiny_sulog_init_heap();
+ }
+ 
+ void __exit ksu_sucompat_exit()
+diff --git a/kernel/hook/branch_link_hook_arm64.c b/kernel/hook/branch_link_hook_arm64.c
+index 9e023bbe..6a336103 100644
+--- a/kernel/hook/branch_link_hook_arm64.c
++++ b/kernel/hook/branch_link_hook_arm64.c
+@@ -138,6 +138,7 @@ KEEP_SYMBOL_NO_TAIL int ksu_vfs_statx(int dfd, struct filename *restrict filenam
+ 	if (likely(!is_kernel_filename_su((const char **)&filename_ptr)))
+ 		goto orig_fn;
+ 
++	write_sulog('s');
+ 	pr_info("su_compat: vfs_statx su->sh!%s\n", (is_compat_task()) ? " [compat]" : "" );
+ 	constexpr char sh[16] = SH_PATH;
+ 	memcpy_inline(filename_ptr, sh, sizeof(sh));
+diff --git a/kernel/supercall/dispatch.c b/kernel/supercall/dispatch.c
+index c1c0ce46..ba25d8ac 100644
+--- a/kernel/supercall/dispatch.c
++++ b/kernel/supercall/dispatch.c
+@@ -6,6 +6,8 @@ static int do_grant_root(void __user *arg)
+ 
+ 	// we already check uid above on allowed_for_su()
+ 
++	write_sulog('i'); // log ioctl escalation
++
+ 	pr_info("allow root for: %d\n", audit_uid);
+ 	ret = escape_with_root_profile();
+ 	ksu_sulog_emit_grant_root(ret, audit_uid, audit_euid, GFP_KERNEL);
+-- 
+2.43.0
+
