@@ -20,6 +20,7 @@
 #   KSU_UPSTREAM_REF  default main
 #   KSU_DEST          destination for source-only mode
 #   KSU_WORKDIR       scratch directory for build mode (default: ./.ksu-work)
+#   KSU_ALLOW_NO_PATCHES=1  allow an empty patch series (default: refuse)
 #
 # Always tracks the upstream branch tip; nothing is pinned. Patches are applied to
 # the working tree, not as commits, so HEAD stays at upstream and the version
@@ -31,7 +32,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 KDIR="${1:-}"
-PATCH_DIR="${2:-patches/ksu}"
+PATCH_DIR="${2:-${SCRIPT_DIR}/../patches/ksu}"
 UPSTREAM_URL="${KSU_UPSTREAM_URL:-https://github.com/tiann/KernelSU.git}"
 UPSTREAM_REF="${KSU_UPSTREAM_REF:-main}"
 
@@ -72,7 +73,11 @@ shopt -s nullglob
 PATCHES=("${PATCH_DIR%/}"/*.patch)
 shopt -u nullglob
 if [ "${#PATCHES[@]}" -eq 0 ]; then
-    warn "no patches in ${PATCH_DIR}; building plain upstream ${UPSTREAM_SHA}"
+    if [ "${KSU_ALLOW_NO_PATCHES:-0}" = "1" ]; then
+        warn "no patches in ${PATCH_DIR}; building plain upstream ${UPSTREAM_SHA} (KSU_ALLOW_NO_PATCHES=1)"
+    else
+        die "no patches in ${PATCH_DIR}. Refusing to build plain upstream; set KSU_ALLOW_NO_PATCHES=1 to allow it."
+    fi
 else
     log "Applying ${#PATCHES[@]} patch(es) from ${PATCH_DIR} to the working tree"
     for p in "${PATCHES[@]}"; do
