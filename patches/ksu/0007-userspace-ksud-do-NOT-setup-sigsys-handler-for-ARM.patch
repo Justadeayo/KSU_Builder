@@ -1,0 +1,24 @@
+From a49a3477b582b50a841d8d21e5a6ccbe626d9dbb Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Mon, 7 Sep 2026 12:29:22 +0800
+Subject: [PATCH] userspace: ksud: skip sigsys handler setup on ARM
+
+---
+ userspace/ksud/src/ksucalls.rs | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/userspace/ksud/src/ksucalls.rs b/userspace/ksud/src/ksucalls.rs
+index ada90d0e..01397c79 100644
+--- a/userspace/ksud/src/ksucalls.rs
++++ b/userspace/ksud/src/ksucalls.rs
+@@ -66,6 +66,7 @@ extern "C" fn sigsys_handler(
+ }
+ 
+ pub fn setup_sigsys_handler() {
++    #[cfg(not(target_arch = "arm"))]
+     unsafe {
+         let mut sa: libc::sigaction = std::mem::zeroed();
+         sa.sa_flags = libc::SA_SIGINFO;
+-- 
+2.43.0
+

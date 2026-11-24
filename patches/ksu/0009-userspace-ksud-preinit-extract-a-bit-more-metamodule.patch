@@ -1,0 +1,25 @@
+From 2d23b492468c98fc1bfa4384269be92bdcd28b37 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Wed, 21 Oct 2026 19:57:01 +0800
+Subject: [PATCH] userspace: ksud: preinit: extract more of /metamodule
+
+---
+ userspace/ksud/src/preinit.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/userspace/ksud/src/preinit.rs b/userspace/ksud/src/preinit.rs
+index dcbc9415..a4a8f2bb 100644
+--- a/userspace/ksud/src/preinit.rs
++++ b/userspace/ksud/src/preinit.rs
+@@ -121,7 +121,7 @@ fn disk_usage(path: &Path) -> u64 {
+ fn available(path: &Path) -> Result<u64> {
+     let st = rustix::fs::statvfs(path)
+         .with_context(|| format!("Failed to statvfs {}", path.display()))?;
+-    Ok(st.f_bavail * st.f_frsize)
++    Ok(st.f_bfree * st.f_frsize)
+ }
+ 
+ /// The runner refuses anything that is not owned by root or is writable by group/other.
+-- 
+2.43.0
+

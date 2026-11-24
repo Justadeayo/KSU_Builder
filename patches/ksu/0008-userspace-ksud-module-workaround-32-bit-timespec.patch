@@ -1,0 +1,25 @@
+From 4ed5062301459f7d800e356c7400d972f0c343a3 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sat, 3 Oct 2026 18:45:40 +0800
+Subject: [PATCH] userspace: ksud: work around 32-bit timespec in module code
+
+---
+ userspace/ksud/src/module.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/userspace/ksud/src/module.rs b/userspace/ksud/src/module.rs
+index 4794da07..01b87ee5 100644
+--- a/userspace/ksud/src/module.rs
++++ b/userspace/ksud/src/module.rs
+@@ -229,7 +229,7 @@ impl SigchldBlock {
+             }
+             let timeout = libc::timespec {
+                 tv_sec: remaining.as_secs() as libc::time_t,
+-                tv_nsec: remaining.subsec_nanos().into(),
++                tv_nsec: remaining.subsec_nanos() as libc::c_long,
+             };
+             // SIGCHLD stays blocked between waitpid and sigtimedwait to avoid lost wakeups.
+             if unsafe {
+-- 
+2.43.0
+
