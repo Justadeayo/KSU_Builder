@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-only
-# Prints the manager certificate values the kernel build must trust, in the
-# same form the manager signing check uses (see kernel/manager/apk_sign.c).
-#
-#   release-cert.sh <keystore> <alias> <store-password>
-#
-# Output (two lines, consumable with `while IFS='=' read -r k v`):
-#   KSU_EXPECTED_SIZE=0x<4-hex-digit DER size>
-#   KSU_EXPECTED_HASH=<sha256 of the DER certificate>
+# Print KSU_EXPECTED_SIZE and KSU_EXPECTED_HASH for a keystore.
+# Usage: release-cert.sh <keystore> <alias> <store-password>
+
 set -euo pipefail
 
 KEYSTORE="${1:?usage: release-cert.sh <keystore> <alias> <store-password>}"

@@ -120,12 +120,7 @@ cmd_anykernel() {
 }
 
 # ---------------------------------------------------------------- ksu-setup
-# Sets up the root driver in the kernel tree and appends the options root needs.
-#   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path> [setup-url] [branch]
-# ksu-type:
-#   None       does nothing
-#   KernelSU   tiann/KernelSU main with patches/ksu (via ksu-fetch.sh); url is ignored
-#   Uni-SU     runs the setup.sh at <setup-url> (Justadeayo/sKernelSU), branch default master
+# ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]
 cmd_ksu_setup() {
     local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]}"
     local ksu_type="${2:?ksu-type}" defconfig="${3:?defconfig path}"

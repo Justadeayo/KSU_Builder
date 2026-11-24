@@ -21,9 +21,8 @@ on:
         required: false
   workflow_dispatch:
 
-# Source layout: KSU_Builder is checked out to ./builder, and ksu-fetch.sh
-# writes the patched tiann/KernelSU main to ./KernelSU. The manager and the
-# kernel both count commits on that same tree, so their versions match.
+# KSU_Builder is checked out to ./builder; the patched KernelSU source goes to ./KernelSU.
+
 jobs:
   generate-key:
     runs-on: ubuntu-24.04

@@ -1,31 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-only
-# Fetches tiann/KernelSU at the tip of its main branch, applies this repo's
-# patch series to the working tree, and (optionally) wires the driver into a
-# kernel tree.
-#
-# Usage:
-#   ksu-fetch.sh <kernel-dir> [patch-dir]
-#       Build mode. Clones upstream to a work directory, applies patches, links
-#       the driver into <kernel-dir>/drivers, and writes <kernel-dir>/ksu-source.txt.
-#   KSU_DEST=<dir> ksu-fetch.sh - [patch-dir]
-#       Source-only mode. Clones and patches upstream into <dir> and does not
-#       touch any kernel tree (used by the manager build).
-#
-#   kernel-dir  kernel source tree (must contain drivers/Makefile and drivers/Kconfig)
-#   patch-dir   directory of *.patch files, applied in lexical order (default: patches/ksu)
-#
-# Environment overrides:
-#   KSU_UPSTREAM_URL  default https://github.com/tiann/KernelSU.git
-#   KSU_UPSTREAM_REF  default main
-#   KSU_DEST          destination for source-only mode
-#   KSU_WORKDIR       scratch directory for build mode (default: ./.ksu-work)
-#   KSU_ALLOW_NO_PATCHES=1  allow an empty patch series (default: refuse)
-#
-# Always tracks the upstream branch tip; nothing is pinned. Patches are applied to
-# the working tree, not as commits, so HEAD stays at upstream and the version
-# (30000 + commit count, in kernel/Kbuild and the manager) counts upstream only.
-# If a patch no longer applies to the current upstream, the script stops and names it.
+# Fetch tiann/KernelSU main, apply patches/ksu, and link the driver into a kernel tree.
+# Usage: ksu-fetch.sh <kernel-dir> [patch-dir]   |   KSU_DEST=<dir> ksu-fetch.sh - [patch-dir]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -68,7 +44,6 @@ git -C "$SRC" checkout --quiet FETCH_HEAD
 UPSTREAM_SHA="$(git -C "$SRC" rev-parse HEAD)"
 log "Upstream ${UPSTREAM_REF} is at ${UPSTREAM_SHA}"
 
-# Apply the patches to the working tree, not as commits.
 shopt -s nullglob
 PATCHES=("${PATCH_DIR%/}"/*.patch)
 shopt -u nullglob
@@ -89,8 +64,7 @@ else
     done
 fi
 
-# The patch series deletes upstream's kernel/Kbuild, which computes the version.
-# Put upstream's copy back so the version comes from tiann's Kbuild exactly.
+# Restore upstream kernel/Kbuild, which the patch series deletes; it computes the version.
 git -C "$SRC" checkout --quiet "$UPSTREAM_SHA" -- kernel/Kbuild || die "upstream has no kernel/Kbuild"
 
 BUILT_SHA="$(git -C "$SRC" rev-parse HEAD)"
@@ -105,8 +79,7 @@ if [ "$SOURCE_ONLY" = 1 ]; then
     exit 0
 fi
 
-# Link the driver into the kernel tree, as tiann's setup.sh does.
-# The symlink points at the work clone, so the clone must stay until the build finishes.
+# The symlink points into the work clone, which must remain until the build finishes.
 ln -sfn "${SRC}/kernel" "${DRIVER_DIR}/kernelsu"
 log "Linked ${DRIVER_DIR}/kernelsu -> ${SRC}/kernel"
 
@@ -116,7 +89,6 @@ DRIVER_KCONFIG="${DRIVER_DIR}/Kconfig"
 grep -q "kernelsu/" "$DRIVER_MAKEFILE" 2>/dev/null || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$DRIVER_MAKEFILE"
 grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG" 2>/dev/null || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"
 
-# Record exactly what was built, for logs and release notes.
 {
     echo "upstream_url=${UPSTREAM_URL}"
     echo "upstream_ref=${UPSTREAM_REF}"
