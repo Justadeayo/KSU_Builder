@@ -1,0 +1,26 @@
+From 6df43f9f22dc20681ae065a3f0688b50902a607b Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sun, 27 Sep 2026 17:48:39 +0800
+Subject: [PATCH] kernel: app_profile: guard cap_ambient cred handling
+
+---
+ kernel/policy/app_profile.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/kernel/policy/app_profile.c b/kernel/policy/app_profile.c
+index 43443137..cf6d7a3e 100644
+--- a/kernel/policy/app_profile.c
++++ b/kernel/policy/app_profile.c
+@@ -143,7 +143,9 @@ int escape_with_root_profile(void)
+ 	memcpy(&cred->cap_bset, &profile->capabilities.effective, sizeof(cred->cap_bset));
+ 	if (profile->uid != 0) {
+ 		memcpy(&cred->cap_inheritable, &profile->capabilities.effective, sizeof(cred->cap_inheritable));
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 3, 0) || defined(PR_CAP_AMBIENT) // torvalds/linux 58319057
+ 		memcpy(&cred->cap_ambient, &profile->capabilities.effective, sizeof(cred->cap_ambient));
++#endif
+ 	}
+ 
+ 	setup_groups(profile, cred);
+-- 
+2.43.0
+

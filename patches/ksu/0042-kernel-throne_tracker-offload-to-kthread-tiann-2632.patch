@@ -1,0 +1,225 @@
+From 06262720d18455906ccc321a489e9f24326f0a50 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Wed, 14 May 2025 23:50:57 +0300
+Subject: [PATCH] kernel: throne_tracker: offload to kthread (tiann#2632)
+
+---
+ kernel/Kconfig                  | 10 +++++
+ kernel/manager/apk_sign.c       | 18 +++++++++
+ kernel/manager/throne_tracker.c | 71 +++++++++++++++++++++++++++++----
+ kernel/manager/throne_tracker.h | 50 +++++++++++++++++++++++
+ 4 files changed, 141 insertions(+), 8 deletions(-)
+
+diff --git a/kernel/Kconfig b/kernel/Kconfig
+index b59e7aa5..87490757 100644
+--- a/kernel/Kconfig
++++ b/kernel/Kconfig
+@@ -17,6 +17,16 @@ config KSU_LSM_SECURITY_HOOKS
+ 	  Disabling this is mostly useful for non-ARM64 with kernel > 6.8.
+ 	  Make sure to implement manual hooks on security/security.c.
+ 
++config KSU_THRONE_TRACKER_ALWAYS_THREADED
++	bool "Always run throne tracker in a kthread"
++	depends on KSU
++	default n
++	help
++	  Enable this option to run throne tracker in a kthread for the first
++	  run, which happens at boot time / decryption stage. This can decrease
++	  boot time, but can cause crowning failure on some FDE/FBEv1 setups.
++	  If unsure, say n.
++
+ config KSU_NOPRINTK
+ 	bool "disable ALL dmesg logging"
+ 	depends on KSU
+diff --git a/kernel/manager/apk_sign.c b/kernel/manager/apk_sign.c
+index 50382803..ca4532d1 100644
+--- a/kernel/manager/apk_sign.c
++++ b/kernel/manager/apk_sign.c
+@@ -130,6 +130,24 @@ static __always_inline bool check_v2_signature(char *path, unsigned expected_siz
+ 	int v2_signing_blocks = 0;
+ 
+ 	int i;
++
++	struct path kpath;
++	if (kern_path(path, 0, &kpath))
++		return false;
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0) 
++	if (inode_is_locked(kpath.dentry->d_inode))
++#else
++	if (mutex_is_locked(&kpath.dentry->d_inode->i_mutex))
++#endif
++	{
++		pr_info("%s: inode is locked for %s\n", __func__, path);
++		path_put(&kpath);
++		return false;
++	}
++
++	path_put(&kpath);
++
+ 	struct file *fp = ksu_filp_open_nonotify(path, O_RDONLY | O_NOATIME);
+ 	if (IS_ERR(fp)) {
+ 		pr_err("open %s error.\n", path);
+diff --git a/kernel/manager/throne_tracker.c b/kernel/manager/throne_tracker.c
+index 291c8a25..7c577972 100644
+--- a/kernel/manager/throne_tracker.c
++++ b/kernel/manager/throne_tracker.c
+@@ -117,7 +117,7 @@ static FILLDIR_RETURN_TYPE my_actor(struct dir_context *ctx, const char *name, i
+ 	return FILLDIR_ACTOR_CONTINUE;
+ }
+ 
+-static void search_manager(const char *path, int depth, struct list_head *uid_data)
++static noinline void search_manager(const char *path, int depth, struct list_head *uid_data)
+ {
+ 	int i, stop = 0;
+ 	struct list_head data_path_list;
+@@ -210,14 +210,12 @@ static bool is_uid_exist(uid_t uid, char *package, void *data)
+ 	return exist;
+ }
+ 
+-void track_throne(bool prune_only)
++static void throne_tracker_fn(bool prune_only)
+ {
+-	mutex_lock(&throne_tracker_mutex);
+-	const struct cred *old_cred = override_creds(ksu_cred);
+ 	struct file *fp = filp_open(SYSTEM_PACKAGES_LIST_PATH, O_RDONLY, 0);
+ 	if (IS_ERR(fp)) {
+ 		pr_err("%s: open " SYSTEM_PACKAGES_LIST_PATH " failed: %ld\n", __func__, PTR_ERR(fp));
+-		goto out_revert_cred;
++		return;
+ 	}
+ 
+ 	struct list_head uid_list;
+@@ -336,10 +334,67 @@ out:
+ 	list_for_each_entry_safe (np, n, &uid_list, list) {
+ 		list_del(&np->list);
+ 		kfree(np);
+-	}
+-out_revert_cred:
+-	revert_creds(old_cred);
++	}	
++}
++
++static int throne_tracker_thread(void *data)
++{
++	// now de-void it here
++	bool prune_only = (bool)data;
++
++	pr_info("throne_tracker: pid: %d started\n", current->pid);
++
++	guarded_mutex_lock(&throne_tracker_mutex);
++
++test_tmp:
++	if (!is_file_existing("/data/system/packages.list.tmp"))
++		goto test_list;
++
++	if (IS_ENABLED(CONFIG_KSU_DEBUG))
++		pr_info("throne_tracker: rename not finished! retry!\n");
++
++	msleep(20); // yield
++	goto test_tmp;
++
++test_list:
++	if (is_file_stable(SYSTEM_PACKAGES_LIST_PATH))
++		goto start_tt;
++
++	if (IS_ENABLED(CONFIG_KSU_DEBUG))
++		pr_info("throne_tracker: rename not finished! retry!\n");
++
++	msleep(20); // yield
++	goto test_list;	
++
++start_tt:
++	// lessen that window where user opens manager right away, yet its not crowned
++	set_user_nice(current, -10);
++
++	// this in exchange of override creds, we escape this whole thread.
++	escape_to_root_forced();
++	throne_tracker_fn(prune_only);
++
++	pr_info("throne_tracker: pid: %d exit!\n", current->pid);
++	return 0;
++}
++
++void track_throne(bool prune_only)
++{
++#ifndef CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED
++	static void *label = &&first_run;
++	goto *label;
++
++first_run:
++	mutex_lock(&throne_tracker_mutex);
++	throne_tracker_fn(prune_only);
+ 	mutex_unlock(&throne_tracker_mutex);
++
++	label = &&threaded;
++	return;
++threaded:
++#endif
++	// HACK: force cast prune_only to be a void *
++	kthread_run(throne_tracker_thread, (void *)prune_only, "kthread");
+ }
+ 
+ void __init ksu_throne_tracker_init()
+diff --git a/kernel/manager/throne_tracker.h b/kernel/manager/throne_tracker.h
+index 6be7d5f0..48beebcf 100644
+--- a/kernel/manager/throne_tracker.h
++++ b/kernel/manager/throne_tracker.h
+@@ -7,4 +7,54 @@ void ksu_throne_tracker_exit();
+ 
+ void track_throne(bool prune_only);
+ 
++/*
++ * small helper to check if file exists
++ * true - file exists
++ * false - file does NOT exist
++ *
++ */
++static inline bool is_file_existing(const char *path) 
++{
++	struct path kpath;
++
++	if (!!kern_path(path, 0, &kpath))
++		return false;
++	
++	path_put(&kpath);
++	return true;
++}
++
++/*
++ * small helper to check if file is stable
++ * note: if we can hold d_lock ourselves, file is stable
++ * true - file is stable
++ * false - file is deleted / being deleted/renamed
++ *
++ */
++static bool is_file_stable(const char *path) 
++{
++	struct path kpath;
++
++	// kern_path returns 0 on success
++	if (kern_path(path, 0, &kpath))
++		return false;
++
++	// just being defensive
++	if (!kpath.dentry) {
++		path_put(&kpath);
++		return false;
++	}
++
++	if (!spin_trylock(&kpath.dentry->d_lock)) {
++		pr_info("%s: lock held for %s, bail out!\n", __func__, path);
++		path_put(&kpath);
++		return false;
++	}
++	// we hold it ourselves here!
++
++	spin_unlock(&kpath.dentry->d_lock);
++	path_put(&kpath);
++	return true;
++}
++
+ #endif
+-- 
+2.43.0
+

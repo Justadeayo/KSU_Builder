@@ -1,0 +1,26 @@
+From 72ecdfab160071c0f4d8a95ff09d184ad0336efd Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sun, 11 Oct 2026 10:13:23 +0800
+Subject: [PATCH] kernel: feature: guard KERNEL_PARAM_FL_UNSAFE
+
+---
+ kernel/policy/feature.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/kernel/policy/feature.c b/kernel/policy/feature.c
+index 79d9d306..28aae6dd 100644
+--- a/kernel/policy/feature.c
++++ b/kernel/policy/feature.c
+@@ -87,7 +87,9 @@ static int force_feature_param_set(const char *val, const struct kernel_param *k
+ 
+ static const struct kernel_param_ops force_feature_param_ops = {
+ 	// A bare `force_feature` would otherwise fail parse_args() and the whole module load
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
+ 	.flags = KERNEL_PARAM_OPS_FL_NOARG,
++#endif
+ 	.set = force_feature_param_set,
+ };
+ module_param_cb(force_feature, &force_feature_param_ops, NULL, 0);
+-- 
+2.43.0
+

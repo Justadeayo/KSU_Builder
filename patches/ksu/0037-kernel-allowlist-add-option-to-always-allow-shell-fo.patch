@@ -1,0 +1,85 @@
+From 30deb26338be544078ff62d31b11d5e093a73080 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Mon, 16 Mar 2026 17:51:39 +0800
+Subject: [PATCH] kernel: allowlist: add option to always allow shell su
+
+---
+ kernel/Kconfig            | 7 +++++++
+ kernel/include/ksu.h      | 6 ++++++
+ kernel/ksu.c              | 2 ++
+ kernel/policy/allowlist.c | 4 ++--
+ 4 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/Kconfig b/kernel/Kconfig
+index 88e918bd..b59e7aa5 100644
+--- a/kernel/Kconfig
++++ b/kernel/Kconfig
+@@ -25,6 +25,13 @@ config KSU_NOPRINTK
+ 	help
+ 	  Disable KernelSU dmesg output.
+ 
++config KSU_SHELL_HAS_SU_ALWAYS
++	bool "give shell su"
++	depends on KSU
++	default n
++	help
++	  Always allow shell (2000) for su. Can speedup sucompat gate as a side-effect.
++
+ config KSU_DEBUG
+ 	bool "KernelSU debug mode"
+ 	depends on KSU
+diff --git a/kernel/include/ksu.h b/kernel/include/ksu.h
+index b6884764..d08d0456 100644
+--- a/kernel/include/ksu.h
++++ b/kernel/include/ksu.h
+@@ -6,6 +6,12 @@
+ struct cred* ksu_cred;
+ static bool ksu_late_loaded = false;
+ 
++#if defined(CONFIG_KSU_DEBUG) || defined(CONFIG_KSU_SHELL_HAS_SU_ALWAYS)
++static bool allow_shell = true;
++#else
++static bool allow_shell = false;
++#endif
++
+ static inline int startswith(char *s, char *prefix)
+ {
+ 	return strncmp(s, prefix, strlen(prefix));
+diff --git a/kernel/ksu.c b/kernel/ksu.c
+index 5dca0891..c4307dea 100644
+--- a/kernel/ksu.c
++++ b/kernel/ksu.c
+@@ -138,6 +138,8 @@ static int __init kernelsu_init(void)
+ 	pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
+ 	pr_alert("*************************************************************");
+ #endif
++	if (allow_shell)
++		pr_alert("shell is allowed at init!");
+ 
+ 	ksu_cred = prepare_creds();
+ 	if (!ksu_cred) {
+diff --git a/kernel/policy/allowlist.c b/kernel/policy/allowlist.c
+index 310bdd32..26c70223 100644
+--- a/kernel/policy/allowlist.c
++++ b/kernel/policy/allowlist.c
+@@ -213,7 +213,7 @@ bool __ksu_is_allow_uid(uid_t uid)
+ 		return true;
+ 	}
+ 
+-	if (unlikely(allow_shell) && uid == SHELL_UID) {
++	if (allow_shell && uid == SHELL_UID) {
+ 		return true;
+ 	}
+ 
+@@ -294,7 +294,7 @@ struct root_profile *ksu_get_root_profile(uid_t uid)
+ 		goto use_default;
+ 	}
+ 
+-	if (unlikely(allow_shell && uid == SHELL_UID)) {
++	if (allow_shell && uid == SHELL_UID) {
+ 		goto use_default;
+ 	}
+ 
+-- 
+2.43.0
+

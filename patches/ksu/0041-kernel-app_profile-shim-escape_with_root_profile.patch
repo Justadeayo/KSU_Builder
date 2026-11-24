@@ -1,0 +1,66 @@
+From b6d35eff350e46f42d2a6a5c4b9b5520ed977659 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sun, 16 Nov 2025 09:05:16 +0800
+Subject: [PATCH] kernel: app_profile: shim escape_with_root_profile via kthread_escape
+
+---
+ kernel/policy/app_profile.c | 17 +++++++++++++++--
+ kernel/policy/app_profile.h |  2 ++
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/policy/app_profile.c b/kernel/policy/app_profile.c
+index cf6d7a3e..15c710c6 100644
+--- a/kernel/policy/app_profile.c
++++ b/kernel/policy/app_profile.c
+@@ -71,7 +71,7 @@ static void disable_seccomp(void)
+ 	spin_unlock_irq(&current->sighand->siglock);
+ }
+ 
+-int escape_with_root_profile(void)
++static int escape_to_root(bool is_forced)
+ {
+ 	int ret = 0;
+ 	struct cred *cred;
+@@ -84,7 +84,7 @@ int escape_with_root_profile(void)
+ 		return -ENOMEM;
+ 	}
+ 
+-	if (cred->euid.val == 0) {
++	if (!is_forced && cred->euid.val == 0) {
+ 		pr_warn("Already root, don't escape!\n");
+ 		goto out_abort_creds;
+ 	}
+@@ -171,4 +171,17 @@ out_abort_creds:
+ 	return ret;
+ }
+ 
++int escape_with_root_profile(void)
++{
++	return escape_to_root(false);
++}
++
++void escape_to_root_forced(void)
++{
++	// I'm not really sure which permissions are needed
++	// its just escape to root but bypasses cred check
++	// which we likely already have on contexts where this will be used.
++	escape_to_root(true);
++}
++
+ void __init ksu_app_profile_init(void) { }
+diff --git a/kernel/policy/app_profile.h b/kernel/policy/app_profile.h
+index 8723f868..6b26ee46 100644
+--- a/kernel/policy/app_profile.h
++++ b/kernel/policy/app_profile.h
+@@ -16,6 +16,8 @@
+ // Escalate current process to root with the appropriate profile
+ int escape_with_root_profile(void);
+ 
++void escape_to_root_forced(void);
++
+ void __init ksu_app_profile_init(void);
+ 
+ #endif
+-- 
+2.43.0
+
