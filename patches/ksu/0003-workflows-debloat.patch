@@ -1,0 +1,234 @@
+From 70fa3c03cea87ea57671794f60c18842e79a14a8 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Tue, 16 Dec 2025 18:52:32 +0800
+Subject: [PATCH] workflows: remove ddk-lkm job and trim build-manager steps
+
+---
+ .github/workflows/build-manager.yml | 38 +++----------
+ .github/workflows/ddk-lkm.yml       | 83 -----------------------------
+ .github/workflows/ksud-extra.yml    |  1 -
+ .github/workflows/ksud.yml          |  1 -
+ 4 files changed, 6 insertions(+), 117 deletions(-)
+
+diff --git a/.github/workflows/build-manager.yml b/.github/workflows/build-manager.yml
+index 7d9f66c9..8a903664 100644
+--- a/.github/workflows/build-manager.yml
++++ b/.github/workflows/build-manager.yml
+@@ -2,7 +2,7 @@ name: Build Manager
+ 
+ on:
+   push:
+-    branches: [ "main", "dev", "ci" ]
++    branches: [ "main", "dev", "ci", "test", "staging" ]
+     paths:
+       - '.github/workflows/build-manager.yml'
+       - '.github/workflows/build-lkm.yml'
+@@ -36,6 +36,7 @@ on:
+       - 'Cargo.lock'
+       - 'Cargo.toml'
+   workflow_call:
++  workflow_dispatch:
+ 
+ jobs:
+   generate-key:
+@@ -123,12 +124,6 @@ jobs:
+     strategy:
+       matrix:
+         include:
+-          - target: x86_64-pc-windows-gnu # windows pc
+-            os: ubuntu-latest
+-          - target: x86_64-apple-darwin # Intel mac
+-            os: macos-latest
+-          - target: aarch64-apple-darwin # M chip mac
+-            os: macos-latest
+           - target: aarch64-unknown-linux-musl # arm64 Linux
+             os: ubuntu-latest
+           - target: x86_64-unknown-linux-musl # x86 Linux
+@@ -137,8 +132,8 @@ jobs:
+     with:
+       target: ${{ matrix.target }}
+       os: ${{ matrix.os }}
+-      pack_lkm: true
+-      pack_ksuinit: true
++      pack_lkm: false
++      pack_ksuinit: false
+ 
+   build-manager:
+     needs: [generate-key]
+@@ -194,13 +189,12 @@ jobs:
+       - name: Build with Gradle
+         run: |
+           if [ "${{ github.event_name }}" = "pull_request" ]; then
+-            ./gradlew clean assembleRelease -PIS_PR_BUILD=true
++            ./gradlew clean assembleRelease --stacktrace -PIS_PR_BUILD=true
+           else
+-            ./gradlew clean assembleRelease
++            ./gradlew clean assembleRelease --stacktrace
+           fi
+ 
+       - name: Upload build artifact
+-        if: ${{ github.event_name == 'pull_request' || (github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || github.ref_type == 'tag' }}
+         uses: actions/upload-artifact@v7
+         with:
+           name: manager-gradle
+@@ -278,7 +272,6 @@ jobs:
+           cp -f "$RISCV64_KSUD" target/riscv64-linux-android/release/ksud
+ 
+       - name: Prepare signing inputs
+-        if: ${{ github.event_name == 'pull_request' || (github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || github.ref_type == 'tag' }}
+         env:
+           PR_KEYSTORE: ${{ needs.generate-key.outputs.keystore }}
+           PR_KEYSTORE_PASSWORD: ${{ needs.generate-key.outputs.keystore_password }}
+@@ -304,7 +297,6 @@ jobs:
+           fi
+ 
+       - name: Repack and resign
+-        if: ${{ github.event_name == 'pull_request' || (github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || github.ref_type == 'tag' }}
+         run: |
+           python3 repack_apk.py repack \
+             -b release \
+@@ -319,26 +311,8 @@ jobs:
+             --strip
+ 
+       - name: Upload build artifact
+-        if: ${{ github.event_name == 'pull_request' || (github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || github.ref_type == 'tag' }}
+         uses: actions/upload-artifact@v7
+         with:
+           name: manager
+           path: dist/*.apk
+ 
+-      - name: Upload to telegram
+-        if: github.event_name != 'pull_request' && steps.need_upload.outputs.UPLOAD == 'true'
+-        env:
+-          CHAT_ID: ${{ secrets.CHAT_ID }}
+-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+-          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
+-          GITHUB_EVENT: ${{ toJson(github.event) }}
+-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+-          TITLE: Manager
+-          BRANCH: ${{ github.ref_name }}
+-        run: |
+-          if [ ! -z "${{ secrets.BOT_TOKEN }}" ]; then
+-            export VERSION=$(git rev-list --count HEAD)
+-            APK=$(find ./dist -name "*.apk")
+-            pip3 install telethon
+-            python3 $GITHUB_WORKSPACE/scripts/ksubot.py $APK
+-          fi
+diff --git a/.github/workflows/ddk-lkm.yml b/.github/workflows/ddk-lkm.yml
+index 2e2e6773..fc94aef8 100644
+--- a/.github/workflows/ddk-lkm.yml
++++ b/.github/workflows/ddk-lkm.yml
+@@ -89,86 +89,3 @@ jobs:
+         name: aarch64-${{ inputs.kmi }}-lkm
+         path: /github/workspace/out/aarch64/${{ inputs.kmi }}_kernelsu.ko
+ 
+-    - name: Build kernelsu.ko for x64
+-      env:
+-        PACKAGE_NAME: ${{ inputs.package_name }}
+-        EXPECTED_SIZE: ${{ inputs.expected_size }}
+-        EXPECTED_HASH: ${{ inputs.expected_hash }}
+-      run: |
+-        cd kernel
+-        make clean
+-
+-        echo "=== Preparing KDIR for x64 ==="
+-
+-        mkdir -p /opt/ddk/kdir-x64
+-        unset ARCH
+-        unset CROSS_COMPILE
+-        export ARCH=x86_64
+-        kmi=${{ inputs.kmi }}
+-        pushd /opt/ddk/src/$kmi
+-        export KDIR=/opt/ddk/kdir-x64/$kmi
+-
+-        # ddk-min images contain the source tarball, whose modpost patch is
+-        # not applied to the fresh x86 kdir.  Keep the patch idempotent so
+-        # this also works when the image already contains one or more fixes.
+-        MODPOST=scripts/mod/modpost.c
+-        sed -i -E 's/^([[:space:]]*)check_exports\(mod\);/\1\/\/ check_exports(mod);/' "$MODPOST"
+-        sed -i -E 's/^([[:space:]]*)s->module = exp->module;/\1\/\/ s->module = exp->module;/' "$MODPOST"
+-        sed -i 's/^static void check_exports(/static void __attribute__((unused)) check_exports(/' "$MODPOST"
+-        sed -i 's/__version_ext_names\\") =\\n/__version_ext_names\\") = \\"\\"\\n/' "$MODPOST"
+-
+-        make O=$KDIR gki_defconfig
+-        scripts/config --file $KDIR/.config -d LTO_CLANG -e LTO_NONE -d LTO_CLANG_THIN -d LTO_CLANG_FULL -d THINLTO
+-        if [ "$kmi" == "android16-6.12" ] || [ "$kmi" == "android17-6.18" ]; then
+-            scripts/config --file $KDIR/.config -e CONFIG_CFI_ICALL_NORMALIZE_INTEGERS
+-        fi
+-        make O=$KDIR modules_prepare
+-        # Generate SELinux headers through Kbuild in this x86 output tree.
+-        make O=$KDIR security/selinux/built-in.a
+-        popd
+-        
+-        echo "=== Building x64 kernelsu.ko for KMI: ${{ inputs.kmi }} ==="
+-
+-        EXTRA_ARGS=""
+-        if [ -n "$PACKAGE_NAME" ]; then
+-          EXTRA_ARGS="$EXTRA_ARGS KSU_PACKAGE_NAME=$PACKAGE_NAME"
+-        fi
+-        if [ -n "$EXPECTED_SIZE" ]; then
+-          EXTRA_ARGS="$EXTRA_ARGS KSU_EXPECTED_SIZE=$EXPECTED_SIZE"
+-        fi
+-        if [ -n "$EXPECTED_HASH" ]; then
+-          EXTRA_ARGS="$EXTRA_ARGS KSU_EXPECTED_HASH=$EXPECTED_HASH"
+-        fi
+-        if [ "${{ github.event_name }}" = "pull_request" ]; then
+-          EXTRA_ARGS="$EXTRA_ARGS KSU_IS_PR_BUILD=1"
+-        fi
+-        
+-        MDIR=$(realpath .)
+-
+-        if [ "$kmi" == "android17-6.18" ]; then
+-          make -C $KDIR M=$MDIR MO=$MDIR compile_commands.json modules CONFIG_KSU=m CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER=y $EXTRA_ARGS
+-        else
+-          make -C $KDIR M=$MDIR src=$MDIR compile_commands.json modules CONFIG_KSU=m CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER=y $EXTRA_ARGS
+-        fi
+-        
+-        echo "=== Build completed ==="
+-
+-        # Create output directory in GitHub workspace
+-        OUT_DIR=/github/workspace/out/x86_64
+-        mkdir -p $OUT_DIR
+-
+-        # Copy with KMI-specific naming
+-        OUTPUT_NAME="${{ inputs.kmi }}_kernelsu.ko"
+-        cp kernelsu.ko "$OUT_DIR/$OUTPUT_NAME"
+-        
+-        echo "Copied to: $OUT_DIR/$OUTPUT_NAME"
+-        ls -la "$OUT_DIR/$OUTPUT_NAME"
+-        echo "Size: $(du -h "$OUT_DIR/$OUTPUT_NAME" | cut -f1)"
+-        llvm-strip -d "$OUT_DIR/$OUTPUT_NAME"
+-        echo "Size after stripping: $(du -h "$OUT_DIR/$OUTPUT_NAME" | cut -f1)"
+-        
+-    - name: Upload x64 kernelsu.ko artifact
+-      uses: actions/upload-artifact@v7
+-      with:
+-        name: x86_64-${{ inputs.kmi }}-lkm
+-        path: /github/workspace/out/x86_64/${{ inputs.kmi }}_kernelsu.ko
+diff --git a/.github/workflows/ksud-extra.yml b/.github/workflows/ksud-extra.yml
+index 83bfcd13..25c99c28 100644
+--- a/.github/workflows/ksud-extra.yml
++++ b/.github/workflows/ksud-extra.yml
+@@ -32,7 +32,6 @@ jobs:
+       if: ${{ inputs.pack_lkm }}
+       run: |
+         cp aarch64-android*-lkm/*_kernelsu.ko ./userspace/ksud/bin/aarch64/
+-        cp x86_64-android*-lkm/*_kernelsu.ko ./userspace/ksud/bin/x86_64/
+     
+     - name: Prepare ksuinit
+       if: ${{ inputs.pack_ksuinit }}
+diff --git a/.github/workflows/ksud.yml b/.github/workflows/ksud.yml
+index 2069a932..31aee161 100644
+--- a/.github/workflows/ksud.yml
++++ b/.github/workflows/ksud.yml
+@@ -28,7 +28,6 @@ jobs:
+       if: ${{ inputs.pack_lkm }}
+       run: |
+         cp aarch64-android*-lkm/*_kernelsu.ko ./userspace/ksud/bin/aarch64/
+-        cp x86_64-android*-lkm/*_kernelsu.ko ./userspace/ksud/bin/x86_64/
+     
+     - name: Prepare ksuinit
+       if: ${{ inputs.pack_ksuinit }}
+-- 
+2.43.0
+

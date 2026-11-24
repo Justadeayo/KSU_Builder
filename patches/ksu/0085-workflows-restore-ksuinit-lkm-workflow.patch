@@ -1,0 +1,38 @@
+From cc876b47a829eff79908ab25618a6892693edf0b Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sat, 11 Jul 2026 09:26:54 +0800
+Subject: [PATCH] workflows: restore ksuinit and LKM workflow
+
+---
+ .github/workflows/build-manager.yml | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/build-manager.yml b/.github/workflows/build-manager.yml
+index 3ee2b735..a8adfea2 100644
+--- a/.github/workflows/build-manager.yml
++++ b/.github/workflows/build-manager.yml
+@@ -111,13 +111,19 @@ jobs:
+       matrix:
+         include:
+           - target: aarch64-linux-android
++            pack_lkm: true
++            pack_ksuinit: true
+           - target: armv7-linux-androideabi
++            pack_lkm: false
++            pack_ksuinit: true
+           - target: x86_64-linux-android
++            pack_lkm: false
++            pack_ksuinit: false
+     uses: ./.github/workflows/ksud.yml
+     with:
+       target: ${{ matrix.target }}
+-      pack_lkm: true
+-      pack_ksuinit: true
++      pack_lkm: ${{ matrix.pack_lkm }}
++      pack_ksuinit: ${{ matrix.pack_ksuinit }}
+   
+   build-ksud-extra:
+     needs: [build-lkm, build-ksuinit]
+-- 
+2.43.0
+
