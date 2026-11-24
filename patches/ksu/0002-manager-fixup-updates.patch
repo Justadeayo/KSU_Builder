@@ -1,0 +1,25 @@
+From fdc003e6bfc1cf400bff38cf6eb49cdb35dedf44 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sat, 29 Nov 2025 22:53:21 +0800
+Subject: [PATCH] manager: fix update downloader
+
+---
+ .../app/src/main/java/me/weishu/kernelsu/ui/util/Downloader.kt  | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/manager/app/src/main/java/me/weishu/kernelsu/ui/util/Downloader.kt b/manager/app/src/main/java/me/weishu/kernelsu/ui/util/Downloader.kt
+index a93a64ce..fa5bcbfb 100644
+--- a/manager/app/src/main/java/me/weishu/kernelsu/ui/util/Downloader.kt
++++ b/manager/app/src/main/java/me/weishu/kernelsu/ui/util/Downloader.kt
+@@ -53,7 +53,7 @@ internal suspend fun isDownloadAvailable(uri: Uri): Boolean = withContext(Dispat
+ 
+ fun checkNewVersion(): LatestVersionInfo {
+     if (!isNetworkAvailable(ksuApp)) return LatestVersionInfo()
+-    val url = "https://api.github.com/repos/tiann/KernelSU/releases/latest"
++    val url = "https://api.github.com/repos/Justadeayo/KSU_Builder/releases/latest"
+     // default null value if failed
+     val defaultValue = LatestVersionInfo()
+     runCatching {
+-- 
+2.43.0
+

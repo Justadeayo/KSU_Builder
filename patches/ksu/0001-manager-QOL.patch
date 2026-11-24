@@ -1,0 +1,125 @@
+From b463d831e8fe2db403f647e25df05c4cd8241507 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Thu, 12 Mar 2026 20:22:47 +0800
+Subject: [PATCH] manager: default to Material UI and add 32-bit/legacy modes
+
+---
+ .../app/src/main/java/me/weishu/kernelsu/Kernels.kt  | 12 ++++++------
+ .../src/main/java/me/weishu/kernelsu/ui/UiMode.kt    |  8 ++++----
+ .../weishu/kernelsu/ui/screen/home/HomeMaterial.kt   |  6 ++----
+ .../me/weishu/kernelsu/ui/screen/home/HomeMiuix.kt   |  3 ---
+ .../weishu/kernelsu/ui/webui/SuFilePathHandler.java  |  2 +-
+ 5 files changed, 13 insertions(+), 18 deletions(-)
+
+diff --git a/manager/app/src/main/java/me/weishu/kernelsu/Kernels.kt b/manager/app/src/main/java/me/weishu/kernelsu/Kernels.kt
+index aaf7cbde..9d8f4d4c 100644
+--- a/manager/app/src/main/java/me/weishu/kernelsu/Kernels.kt
++++ b/manager/app/src/main/java/me/weishu/kernelsu/Kernels.kt
+@@ -14,14 +14,14 @@ data class KernelVersion(val major: Int, val patchLevel: Int, val subLevel: Int)
+ 
+     fun isGKI(): Boolean {
+ 
+-        // kernel 6.x
+-        if (major > 5) {
++        // kernel 5.x, 6.x
++        if (major > 4) {
+             return true
+         }
+ 
+-        // kernel 5.10.x
+-        if (major == 5) {
+-            return patchLevel >= 10
++        // kernel 4.19.x
++        if (major == 4) {
++            return patchLevel >= 19
+         }
+ 
+         return false
+@@ -45,4 +45,4 @@ fun getKernelVersion(): KernelVersion {
+     Os.uname().release.let {
+         return parseKernelVersion(it)
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/manager/app/src/main/java/me/weishu/kernelsu/ui/UiMode.kt b/manager/app/src/main/java/me/weishu/kernelsu/ui/UiMode.kt
+index 6fa66cb4..6532317d 100644
+--- a/manager/app/src/main/java/me/weishu/kernelsu/ui/UiMode.kt
++++ b/manager/app/src/main/java/me/weishu/kernelsu/ui/UiMode.kt
+@@ -8,12 +8,12 @@ enum class UiMode(val value: String) {
+ 
+     companion object {
+         fun fromValue(value: String): UiMode = when (value) {
+-            Material.value -> Material
+-            else -> Miuix
++            Miuix.value -> Miuix
++            else -> Material
+         }
+ 
+-        val DEFAULT_VALUE = Miuix.value
++        val DEFAULT_VALUE = Material.value
+     }
+ }
+ 
+-val LocalUiMode = staticCompositionLocalOf { UiMode.Miuix }
++val LocalUiMode = staticCompositionLocalOf { UiMode.Material }
+diff --git a/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMaterial.kt b/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMaterial.kt
+index 0ab0323c..4110e0a5 100644
+--- a/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMaterial.kt
++++ b/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMaterial.kt
+@@ -1,5 +1,6 @@
+ package me.weishu.kernelsu.ui.screen.home
+ 
++import android.os.Build
+ import androidx.compose.animation.AnimatedVisibility
+ import androidx.compose.animation.expandVertically
+ import androidx.compose.animation.fadeIn
+@@ -101,9 +102,6 @@ fun HomePagerMaterial(
+             } else if (state.showKernelPrBuildWarning) {
+                 WarningCard(stringResource(id = R.string.home_pr_kernel_warning), level = WarningLevel.Notice)
+             }
+-            if (state.showGkiWarning) {
+-                WarningCard(stringResource(id = R.string.home_gki_warning), level = WarningLevel.Notice)
+-            }
+             if (state.requiresNewKernel) {
+                 WarningCard(
+                     stringResource(
+@@ -224,7 +222,7 @@ private fun StatusCard(
+         }
+         val workingMode = if (ksuActive) {
+             when (state.lkmMode) {
+-                null -> ""
++                null -> if (Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "32-BIT" else "LEGACY"
+                 true -> "LKM"
+                 else -> "GKI"
+             }
+diff --git a/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMiuix.kt b/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMiuix.kt
+index 4dbbd847..11add2ec 100644
+--- a/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMiuix.kt
++++ b/manager/app/src/main/java/me/weishu/kernelsu/ui/screen/home/HomeMiuix.kt
+@@ -135,9 +135,6 @@ fun HomePagerMiuix(
+                         } else if (state.showKernelPrBuildWarning) {
+                             WarningCard(stringResource(id = R.string.home_pr_kernel_warning), level = WarningLevel.Notice)
+                         }
+-                        if (state.showGkiWarning) {
+-                            WarningCard(stringResource(id = R.string.home_gki_warning), level = WarningLevel.Notice)
+-                        }
+                         if (state.requiresNewKernel) {
+                             WarningCard(
+                                 stringResource(
+diff --git a/manager/app/src/main/java/me/weishu/kernelsu/ui/webui/SuFilePathHandler.java b/manager/app/src/main/java/me/weishu/kernelsu/ui/webui/SuFilePathHandler.java
+index 8b28be1f..fb8b576d 100644
+--- a/manager/app/src/main/java/me/weishu/kernelsu/ui/webui/SuFilePathHandler.java
++++ b/manager/app/src/main/java/me/weishu/kernelsu/ui/webui/SuFilePathHandler.java
+@@ -196,7 +196,7 @@ public final class SuFilePathHandler implements WebViewAssetLoader.PathHandler {
+         if ("internal/colors.css".equals(path)) {
+             SharedPreferences prefs = mContext.getSharedPreferences("settings", Context.MODE_PRIVATE);
+             int colorMode = prefs.getInt("color_mode", 0);
+-            String uiMode = prefs.getString("ui_mode", "miuix");
++            String uiMode = prefs.getString("ui_mode", "material");
+             String css = "";
+             if ((colorMode >= 3 && colorMode <= 6) || "material".equals(uiMode)) {
+                 css = MonetColorsProvider.INSTANCE.getColorsCss();
+-- 
+2.43.0
+
