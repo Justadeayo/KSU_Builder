@@ -1,0 +1,84 @@
+From c9ce2d6c3c255458b8ce3e0509ba25662764bf2e Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Thu, 13 Nov 2025 08:22:18 +0800
+Subject: [PATCH] kernel: wire up uid_t/gid_t strict type check bypass
+
+---
+ kernel/feature/kernel_umount.c |  4 ++--
+ kernel/hook/setuid_hook.c      |  4 ++--
+ kernel/policy/app_profile.c    | 20 ++++++++++----------
+ 3 files changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/kernel/feature/kernel_umount.c b/kernel/feature/kernel_umount.c
+index 3297df60..d98e3190 100644
+--- a/kernel/feature/kernel_umount.c
++++ b/kernel/feature/kernel_umount.c
+@@ -72,8 +72,8 @@ static inline void try_umount(const char *mnt, int flags)
+ 
+ static inline int ksu_handle_umount(struct cred *new, const struct cred *old)
+ {
+-	uid_t new_uid = new->uid.val;
+-	uid_t old_uid = old->uid.val;
++	uid_t new_uid = ksu_get_uid_t(new->uid);
++	uid_t old_uid = ksu_get_uid_t(old->uid);
+ 
+ 	if (!ksu_kernel_umount_enabled)
+ 		return 0;
+diff --git a/kernel/hook/setuid_hook.c b/kernel/hook/setuid_hook.c
+index a7e80ef1..92579804 100644
+--- a/kernel/hook/setuid_hook.c
++++ b/kernel/hook/setuid_hook.c
+@@ -3,8 +3,8 @@ static __always_inline void ksu_handle_setresuid_cred(struct cred *new, const st
+ 	if (!new || !old)
+ 		return;
+ 
+-	uid_t new_uid = new->uid.val;
+-	uid_t old_uid = old->uid.val;
++	uid_t new_uid = ksu_get_uid_t(new->uid);
++	uid_t old_uid = ksu_get_uid_t(old->uid);
+ 
+ 	// old process is not root, ignore it.
+ 	if (unlikely(!!old_uid))
+diff --git a/kernel/policy/app_profile.c b/kernel/policy/app_profile.c
+index 15c710c6..f266f192 100644
+--- a/kernel/policy/app_profile.c
++++ b/kernel/policy/app_profile.c
+@@ -84,7 +84,7 @@ static int escape_to_root(bool is_forced)
+ 		return -ENOMEM;
+ 	}
+ 
+-	if (!is_forced && cred->euid.val == 0) {
++	if (!is_forced && ksu_get_uid_t(cred->euid) == 0) {
+ 		pr_warn("Already root, don't escape!\n");
+ 		goto out_abort_creds;
+ 	}
+@@ -94,17 +94,17 @@ static int escape_to_root(bool is_forced)
+ 		goto out_abort_creds;
+ 	}
+ 
+-	profile = ksu_get_root_profile(cred->uid.val);
++	profile = ksu_get_root_profile(ksu_get_uid_t(cred->uid));
+ 
+-	cred->uid.val = profile->uid;
+-	cred->suid.val = profile->uid;
+-	cred->euid.val = profile->uid;
+-	cred->fsuid.val = profile->uid;
++	ksu_get_uid_t(cred->uid) = profile->uid;
++	ksu_get_uid_t(cred->suid) = profile->uid;
++	ksu_get_uid_t(cred->euid) = profile->uid;
++	ksu_get_uid_t(cred->fsuid) = profile->uid;
+ 
+-	cred->gid.val = profile->gid;
+-	cred->fsgid.val = profile->gid;
+-	cred->sgid.val = profile->gid;
+-	cred->egid.val = profile->gid;
++	ksu_get_uid_t(cred->gid) = profile->gid;
++	ksu_get_uid_t(cred->fsgid) = profile->gid;
++	ksu_get_uid_t(cred->sgid) = profile->gid;
++	ksu_get_uid_t(cred->egid) = profile->gid;
+ 	cred->securebits = 0;
+ 
+ 	BUILD_BUG_ON(sizeof(profile->capabilities.effective) != sizeof(kernel_cap_t));
+-- 
+2.43.0
+

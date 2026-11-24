@@ -1,0 +1,64 @@
+From 1d6e992500304a675801ca954e8dfc64002cb26d Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sun, 23 Aug 2026 15:49:29 +0800
+Subject: [PATCH] kernel: wire up hostsredirect
+
+---
+ kernel/Kconfig              | 12 ++++++++++++
+ kernel/ksu.c                |  4 ++++
+ kernel/runtime/boot_event.c |  3 +++
+ 3 files changed, 19 insertions(+)
+
+diff --git a/kernel/Kconfig b/kernel/Kconfig
+index ce0ab559..67ff0d23 100644
+--- a/kernel/Kconfig
++++ b/kernel/Kconfig
+@@ -63,6 +63,18 @@ config KSU_FEATURE_ADBROOT
+ 	help
+ 	  Build KernelSU's adb root feature.
+ 
++config KSU_HOSTSREDIRECT
++	bool "/system/etc/hosts redirection"
++	depends on KSU
++	depends on (ARM || ARM64)
++	default n
++	help
++	  Kernel-level sys_openat fd redirect targeting /system/etc/hosts to /data/adb/hosts.
++	  Allows hosts file modification without mounting hosts file directly, this is meant to
++	  be used with bindhosts mode 3. If /data/adb/hosts does NOT exist at boot, the syscall
++	  hook is automatically skipped. See like ZN-hostsredirect / APatch hosts file redirect.
++	  If unsure, say n.
++
+ config KSU_ENABLE_FULL_UID_CHECKS
+ 	bool "perform full uid checks (reduced performance)"
+ 	depends on KSU
+diff --git a/kernel/ksu.c b/kernel/ksu.c
+index 1db76eec..3eff0121 100644
+--- a/kernel/ksu.c
++++ b/kernel/ksu.c
+@@ -102,6 +102,10 @@
+ #include "downstream/tiny_sulog.h"
+ #include "downstream/toolkit.h"
+ 
++#ifdef CONFIG_KSU_HOSTSREDIRECT
++#include "downstream/ksu_hostsredirect.h"
++#endif
++
+ // unity build
+ #include "policy/allowlist.c"
+ #include "policy/app_profile.c"
+diff --git a/kernel/runtime/boot_event.c b/kernel/runtime/boot_event.c
+index 00f8ec56..23cf5a2f 100644
+--- a/kernel/runtime/boot_event.c
++++ b/kernel/runtime/boot_event.c
+@@ -54,4 +54,7 @@ void on_boot_completed(void)
+ 	ksu_boot_completed = true;
+ 	pr_info("on_boot_completed!\n");
+ 	track_throne(true);
++#ifdef CONFIG_KSU_HOSTSREDIRECT
++	ksu_hostsredirect_init();
++#endif
+ }
+-- 
+2.43.0
+
