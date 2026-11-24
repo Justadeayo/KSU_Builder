@@ -1,0 +1,2869 @@
+From 2ba747e7c3fd12a969f4fd8daf15c5f780a6e218 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Tue, 30 Jun 2026 19:11:15 +0800
+Subject: [PATCH] kernel: downstream: provide arm64 trampoline and kallsyms helpers
+
+---
+ kernel/downstream/arm64_branch_patch.h        | 166 ++++++
+ .../downstream/arm64_syscall_table_mirror.h   | 210 +++++++
+ kernel/downstream/arm64_tiny_trampoline.h     | 287 ++++++++++
+ kernel/downstream/deprecated/kp_ksud.c        | 154 +++++
+ .../downstream/deprecated/ksu_getpriority.h   | 213 +++++++
+ .../downstream/deprecated/module_blacklist.h  | 135 +++++
+ kernel/downstream/kallsyms_common.h           | 537 ++++++++++++++++++
+ kernel/downstream/kprobes_common.h            |  37 ++
+ kernel/downstream/ksu_hostsredirect.h         | 203 +++++++
+ kernel/downstream/slow_avc_audit_defs.h       | 201 +++++++
+ kernel/downstream/syscall_table_common.h      |  35 ++
+ kernel/downstream/tiny_sulog.h                | 158 ++++++
+ kernel/downstream/toolkit.h                   | 161 ++++++
+ kernel/downstream/vmap_patch.h                | 187 ++++++
+ kernel/kernel_compat.h                        |  12 +
+ kernel/ksu.c                                  |  26 +
+ 16 files changed, 2722 insertions(+)
+ create mode 100644 kernel/downstream/arm64_branch_patch.h
+ create mode 100644 kernel/downstream/arm64_syscall_table_mirror.h
+ create mode 100644 kernel/downstream/arm64_tiny_trampoline.h
+ create mode 100644 kernel/downstream/deprecated/kp_ksud.c
+ create mode 100644 kernel/downstream/deprecated/ksu_getpriority.h
+ create mode 100644 kernel/downstream/deprecated/module_blacklist.h
+ create mode 100644 kernel/downstream/kallsyms_common.h
+ create mode 100644 kernel/downstream/kprobes_common.h
+ create mode 100644 kernel/downstream/ksu_hostsredirect.h
+ create mode 100644 kernel/downstream/slow_avc_audit_defs.h
+ create mode 100644 kernel/downstream/syscall_table_common.h
+ create mode 100644 kernel/downstream/tiny_sulog.h
+ create mode 100644 kernel/downstream/toolkit.h
+ create mode 100644 kernel/downstream/vmap_patch.h
+
+diff --git a/kernel/downstream/arm64_branch_patch.h b/kernel/downstream/arm64_branch_patch.h
+new file mode 100644
+index 00000000..2db69dff
+--- /dev/null
++++ b/kernel/downstream/arm64_branch_patch.h
+@@ -0,0 +1,166 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __H_ARM64_BRANCH_PATCH
++#define __H_ARM64_BRANCH_PATCH
++
++#include <linux/version.h>
++#include <linux/uaccess.h>
++#include <asm/insn.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
++#include <asm/text-patching.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
++#include <asm/patching.h>
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 2, 0)
++__weak s32 aarch64_get_branch_offset(u32 insn)
++{
++	// 26-bit signed relative jump offset
++	// FC, D, E, F, so 3
++	s32 imm26 = insn & 0x03FFFFFF;
++
++	// in case of backward jumps
++	if (imm26 & 0x02000000)
++		imm26 |= 0xFC000000;
++
++	// 4-byte word count to byte delta
++	return imm26 * 4;
++}
++#endif
++
++/**
++ * arm64_branch_patch(): hunt and patch all b or bl insn found within target
++ *
++ * @target_callsite: callsite on where to start scanning for (ptr / fn_ptr)
++ * @target_width: how far to scan for (bytes / ptrdiff)
++ * @symbol_addr: symbol being called to look for at the site (fn_ptr)
++ * @hook_addr: symbol to redirect "b symbol_addr" to (fn_ptr)
++ * @type: branch type to look for. 1: b, 2: bl, 3: b or bl
++ *
++ * CONTEXT:
++ * - do NOT call inside atomic context! (aarch64_insn_patch_text calls stop_machine)
++ * - safe to run early or within kernel threads.
++ *
++ * NOTES:
++ * - both symbol_addr and hook_addr must be inside +/-128MB ptrdiff to callsite! else ret -ERANGE
++ * - if target bl not found within target_width, ret -ENOENT
++ * - returns 0 on success.
++ * - preserves instruction type (e.g., 'BL' becomes a 'BL' to the hook, and 'B' becomes a 'B' to the hook).
++ * 
++ */
++#define BRANCH_TYPE_B		1
++#define BRANCH_TYPE_BL		2
++#define BRANCH_TYPE_B_OR_BL	3
++nodiscard static noinline int arm64_branch_patch(uintptr_t target_callsite, ptrdiff_t target_width, uintptr_t symbol_addr, uintptr_t hook_addr, uint8_t type)
++{
++	if (!target_callsite || !symbol_addr) {
++		pr_info("%s: no callsite or symbol addr specified!\n", __func__);
++		return -EINVAL;
++	}
++
++	might_sleep();
++
++	constexpr ptrdiff_t bl_max_delta = (1L << 25) * sizeof(uint32_t); // 26 bits signed * insn size
++	uintptr_t start_addr = (uintptr_t)target_callsite;
++	uintptr_t end_addr = start_addr + target_width;
++
++	ptrdiff_t hook_to_start = (ptrdiff_t)hook_addr - (ptrdiff_t)start_addr;
++	ptrdiff_t hook_to_end = (ptrdiff_t)hook_addr - (ptrdiff_t)end_addr;
++	if (__builtin_labs(hook_to_start) >= bl_max_delta || __builtin_labs(hook_to_end) >= bl_max_delta) {
++		pr_info("%s: callsite: 0x%lx ~ 0x%lx hook: 0x%lx out of range!\n", __func__, start_addr, end_addr, hook_addr);
++		return -ERANGE;
++	}
++//	pr_info("%s: scan window start: 0x%lx end: 0x%lx in range to hook: 0x%lx deltas: %ld / %ld \n", __func__, start_addr, end_addr, hook_addr, hook_to_start, hook_to_end);
++
++	uintptr_t curr_addr = start_addr;
++	uint32_t raw_instruction; // arm64 wordsize
++	unsigned int patched = 0;
++
++start_scan:
++	if (curr_addr >= end_addr)
++		goto bail;
++
++	if (!!copy_from_kernel_nofault(&raw_instruction, (void *)curr_addr, sizeof(uint32_t)))
++		goto step_up;
++
++	// aarch64_insn_is_##abbr, arch/arm64/include/asm/insn.h
++	switch (type) {
++	case BRANCH_TYPE_BL:
++		if (!aarch64_insn_is_bl(raw_instruction))
++			goto step_up;
++		break;
++	case BRANCH_TYPE_B:
++		if (!aarch64_insn_is_b(raw_instruction))
++			goto step_up;
++		break;
++	case BRANCH_TYPE_B_OR_BL:
++		if (!aarch64_insn_is_bl(raw_instruction) && !aarch64_insn_is_b(raw_instruction))
++			goto step_up;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	// signed
++	long offset = aarch64_get_branch_offset(raw_instruction);
++	uintptr_t calculated_destination = curr_addr + offset;
++
++	if (calculated_destination != symbol_addr)
++		goto step_up;
++
++	pr_info("%s: found call site at 0x%lx w/ .inst 0x%x \n", __func__, curr_addr, raw_instruction);
++
++	ptrdiff_t delta = hook_addr - curr_addr;
++	if (__builtin_labs(delta) >= bl_max_delta) {
++		__builtin_unreachable(); // see range check above
++		pr_info("%s: callsite 0x%lx to hook 0x%lx out of range! (delta: %ld bytes)\n",  __func__, curr_addr, hook_addr, delta);
++		return -ERANGE;
++	}
++
++	pr_info("%s: callsite: 0x%lx hook: 0x%lx (delta: %ld bytes)\n",  __func__, curr_addr, hook_addr, delta);
++
++	uint32_t insn;
++	if (aarch64_insn_is_bl(raw_instruction))
++		insn = aarch64_insn_gen_branch_imm(curr_addr, hook_addr, AARCH64_INSN_BRANCH_LINK);
++	else
++		insn = aarch64_insn_gen_branch_imm(curr_addr, hook_addr, AARCH64_INSN_BRANCH_NOLINK);
++
++	void *arr_addr[] = { (void*)curr_addr };
++	uint32_t arr_insn[] = { insn };
++
++	int res = aarch64_insn_patch_text(arr_addr, arr_insn, 1);
++	pr_info("%s: callsite: 0x%lx patch result: %d\n", __func__, curr_addr, res);
++	if (!res)
++		patched++;
++
++step_up:
++	curr_addr = curr_addr + sizeof(uint32_t);
++	goto start_scan;
++
++bail:
++	if (!patched) {
++		pr_info("%s: callsite instruction not found!\n", __func__);
++		return -ENOENT;
++	}
++
++	if (patched > 1)
++		pr_info("%s: patch count: %d\n", __func__, patched);
++	return 0;
++}
++
++#define arm64_b_patch(tgt, width, symaddr, hookaddr)		arm64_branch_patch(tgt, width, symaddr, hookaddr, BRANCH_TYPE_B)
++#define arm64_bl_patch(tgt, width, symaddr, hookaddr)		arm64_branch_patch(tgt, width, symaddr, hookaddr, BRANCH_TYPE_BL)
++#define arm64_b_or_bl_patch(tgt, width, symaddr, hookaddr)	arm64_branch_patch(tgt, width, symaddr, hookaddr, BRANCH_TYPE_B_OR_BL)
++
++#endif // __H_ARM64_BRANCH_PATCH
+diff --git a/kernel/downstream/arm64_syscall_table_mirror.h b/kernel/downstream/arm64_syscall_table_mirror.h
+new file mode 100644
+index 00000000..0614107b
+--- /dev/null
++++ b/kernel/downstream/arm64_syscall_table_mirror.h
+@@ -0,0 +1,210 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++/**
++ *  syscall_table_mirror - lets own the full table ourselves.
++ *
++ *  Due to some kernel protection bullshit, vmapping as writable is no go.
++ *  either by straight up blocking EL2 MMU access or due to integrity checks. (e.g. checksums against the table)
++ *
++ *  This method explores replacing the page adrp loads around ~el0_svc.
++ *
++ *  * 4.14 and older (pre syscall wrapper, aligned to 4096, natural adrp alignment)
++ *  ffffff8010083f80 <el0_svc>:
++ *  ffffff8010083f80: b000f11b     	adrp	x27, 0xffffff8011ea4000 <sys_call_table> << we replace this
++ *  ffffff8010083f84: 2a0803fa     	mov	w26, w8
++ *  ffffff8010083f88: 52803759     	mov	w25, #0x1ba     // =442
++ *
++ *  * 4.19+ (with syscall wrapper, access is not page aligned, offset by add insn after adrp)
++ *  ffffff80100b0c6c <el0_svc_handler>:
++ *  ffffff80100b0c6c: a9bf7bfd     	stp	x29, x30, [sp, #-0x10]!
++ *  ffffff80100b0c70: 910003fd     	mov	x29, sp
++ *  ffffff80100b0c74: 14000008     	b	0xffffff80100b0c94
++ *  ffffff80100b0c78: d503201f     	nop
++ *  ffffff80100b0c7c: b9404001     	ldr	w1, [x0, #0x40]
++ *  ffffff80100b0c80: f000b7c2     	adrp	x2, 0xffffff80117ab000	<< page where sys_call_table lies, we replace this
++ *  ffffff80100b0c84: 913a0042     	add	x2, x2, #0xe80		<< offset
++ *  ffffff80100b0c88: 9400001a     	bl	0xffffff80100b0cf0 <el0_svc_common>
++ *  ffffff80100b0c8c: ...
++ *
++ *  due to that offset on 4.19+ we have to prepare and copy 2x 4096, basically as allowance for the offset.
++ *  
++ *  tested to work on:
++ *	- 4.14 ~ 6.12
++ *
++ *  Changelog:
++ *	- init, 261031
++ *	- fixup offsets (adrp + add reg) on 4.19+ (261101)
++ *	- hunt multiple loadsites (enskye/KyeSU/commit/1828e7190), (261102)
++ *	- edge-case protection, ERANGE + scan_depth thingy, (26110?)
++ *
++ */
++#ifndef __H_ARM64_SYSCALL_TABLE_MIRROR
++#define __H_ARM64_SYSCALL_TABLE_MIRROR
++
++#if !defined(__aarch64__)
++static_assert(1 == 0, "ARM64 only!");
++#endif
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0) && defined(CONFIG_KALLSYMS)
++
++#define sct_slots 512
++
++static uintptr_t sys_call_table_mpage[sct_slots * 2] __aligned(4096);
++#if defined(CONFIG_COMPAT)
++static uintptr_t compat_sys_call_table_mpage[sct_slots * 2] __aligned(4096);
++#endif
++
++static int arm64_adrp_patch(uintptr_t *target_table, uintptr_t insn_addr_start, ptrdiff_t scan_depth, void *new_page, void *new_table)
++{
++	uintptr_t insn_p = insn_addr_start;
++	uintptr_t insn_end = insn_addr_start + scan_depth;
++	uint32_t raw_insn = 0;
++	uint32_t patched = 0; // # of sites patched
++
++scan:
++	if (insn_p >= insn_end)
++		goto bail;
++
++	if (copy_from_kernel_nofault((void *)&raw_insn, (void *)insn_p, sizeof(uint32_t)))
++		goto increment;
++
++	// aarch64_insn_is_##abbr, arch/arm64/include/asm/insn.h
++	if (!aarch64_insn_is_adrp(raw_insn))
++		goto increment;
++
++	pr_info("%s: 0x%lx insn is adrp! .inst 0x%lx \n", __func__, insn_p, raw_insn);
++
++	uintptr_t pc_pg = insn_p & ~0xFFFUL; // target, aligned to 4096
++	uintptr_t tgt = pc_pg + (long)aarch64_insn_adrp_get_offset(raw_insn);
++
++	pr_info("%s: tgt: 0x%lx target_table: 0x%lx\n", __func__, tgt, *target_table);
++	if (tgt != (*target_table & ~0xFFFUL))
++		goto increment;
++
++	/**
++	 * max distance is 2^20 * 4096, signed 21bits imm per 4096
++	 * however aarch64_insn_adrp_set_offset is s32 max
++	 *
++	 * this tigthens range check by +-scan_depth, to avoid extra logic
++	 * where multiple adrp that are few insn away from each other and
++	 * another 'loading the same table and one is going -ERANGE'
++	 */
++	int64_t offset = (int64_t)new_page - (int64_t)pc_pg;
++	if (!patched && (offset < (-0x80000000LL + __builtin_labs(scan_depth)) || offset > (0x7fffffffLL - __builtin_labs(scan_depth))))
++		return -ERANGE;
++
++	pr_info("%s: tgt 0x%lx to new_page: 0x%lx in range! (delta: %ld bytes)\n",  __func__, tgt, (uintptr_t)new_page, offset);
++
++	uint32_t new_insn = aarch64_insn_adrp_set_offset(raw_insn, (int32_t)offset);
++
++	pr_info("%s: new_insn: .inst 0x%lx \n", __func__, new_insn);
++
++	void *arr_addr[] = { (void *)insn_p };
++	uint32_t arr_insn[] = { new_insn };
++	
++	int res = aarch64_insn_patch_text(arr_addr, arr_insn, 1);
++	pr_info("%s: patched insn! ret: %d\n", __func__, res);
++	if (!res)
++		patched++;
++
++increment:
++	insn_p = insn_p + sizeof(uint32_t);
++	goto scan;
++
++bail:
++	if (!patched) {
++		pr_info("%s: insn not found!\n", __func__);
++		return -ENOENT;	
++	}
++
++	pr_info("%s: target_table: 0x%lx mirror_table: 0x%lx patch_count: %u \n", __func__, *target_table, (uintptr_t)new_table, patched);
++	patch_ptr_slot_kick_cpu((void **)target_table, (void *)new_table);
++	return 0;
++}
++
++static int mirror_syscall_table(const char *native_sym, const char *compat_sym, ptrdiff_t scan_depth)
++{
++	uintptr_t addr = (uintptr_t)native_sct;
++	uintptr_t base = addr & ~0xFFFUL;
++	uintptr_t offset = addr & 0xFFFUL;
++	void *new_table = (void *)sys_call_table_mpage + offset;
++
++	uintptr_t target = kallsyms_lookup_name(native_sym);
++	if (!target)
++		return -ENOENT;
++
++	if (!!copy_from_kernel_nofault((void *)sys_call_table_mpage, (void *)base, 4096 * 2))
++		return -EFAULT;
++
++	pr_info("%s: addr: 0x%lx base: 0x%lx offset: %lu \n", __func__, addr, base, offset);
++
++	ssize_t new_scan_depth = ksu_get_ksym_size(target, scan_depth);
++	pr_info("%s: target: %s @ 0x%lx sz: %zu\n", __func__, native_sym, target, new_scan_depth);
++
++	int ret = arm64_adrp_patch((uintptr_t *)&native_sct, target, new_scan_depth, (void *)sys_call_table_mpage, new_table);
++	if (ret)
++		return ret;
++
++	pr_info("%s: sys_call_table mirrored! adrp insn patched!\n", __func__);
++
++#if defined(CONFIG_COMPAT)
++	addr = (uintptr_t)compat_sct;
++	base = addr & ~0xFFFUL;
++	offset = addr & 0xFFFUL;
++	new_table = (void *)compat_sys_call_table_mpage + offset;
++
++	target = kallsyms_lookup_name(compat_sym);
++	if (!target)
++		return -ENOENT;
++
++	if (!!copy_from_kernel_nofault((void *)compat_sys_call_table_mpage, (void *)base, 4096 * 2))
++		return -EFAULT;
++
++	pr_info("%s: addr: 0x%lx base: 0x%lx offset: %lu \n", __func__, addr, base, offset);
++
++	new_scan_depth = ksu_get_ksym_size(target, scan_depth);
++	pr_info("%s: target: %s @ 0x%lx sz: %zu\n", __func__, compat_sym, target, new_scan_depth);
++
++	ret = arm64_adrp_patch((uintptr_t *)&compat_sct, target, new_scan_depth, (void *)compat_sys_call_table_mpage, new_table);
++	if (ret)
++		return ret;
++
++	pr_info("%s: compat_sys_call_table mirrored! adrp insn patched!\n", __func__);
++#endif
++	return 0;
++}
++
++static void try_mirror_syscall_table(void)
++{
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
++	int ret = mirror_syscall_table("do_el0_svc", "do_el0_svc_compat", 64 * 4);
++	if (!ret)
++		return;
++
++	ret = mirror_syscall_table("el0_svc_handler", "el0_svc_compat_handler", 64 * 4);
++	if (!ret)
++		return;
++
++	// for heavily inlined shit
++	mirror_syscall_table("el0_svc", "el0_svc_compat", 256 * 4);
++#else
++	mirror_syscall_table("el0_svc", "el0_svc_compat", 16 * 4);
++#endif
++}
++
++#else /* < 4.9 */
++#define try_mirror_syscall_table()	do { } while(0)
++#endif
++
++#endif // __H_ARM64_SYSCALL_TABLE_MIRROR
++
+diff --git a/kernel/downstream/arm64_tiny_trampoline.h b/kernel/downstream/arm64_tiny_trampoline.h
+new file mode 100644
+index 00000000..27283d71
+--- /dev/null
++++ b/kernel/downstream/arm64_tiny_trampoline.h
+@@ -0,0 +1,287 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++#ifndef __H_ARM64_TINY_TRAMPOLINE
++#define __H_ARM64_TINY_TRAMPOLINE
++
++#include <linux/version.h>
++#include <linux/uaccess.h>
++#include <asm/insn.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
++#include <asm/text-patching.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
++#include <asm/patching.h>
++#endif
++
++#if !defined(__aarch64__)
++static_assert(1 == 0, "ARM64 only!");
++#endif
++
++/**
++ * small 4-word aarch64 trampoline
++ *
++ * in reality, its more of a landing pad. no register-stack-register spill
++ * all this does is extend the branching range to full 64 bit address space.
++ *
++ *  Changelog:
++ *	- init, 261115
++ *	- small build fixups, 261116
++ *	- add local nop bank, 261118
++ *
++ * printf '%s\n' '.text' '.global tp' 'tp:' 'ldr x16, #8' 'br x16' '.quad 0x12345678FFFFFFFF' | aarch64-linux-gnu-as -o test.o
++ *
++ * 0:	58000050 	ldr	x16, #8 
++ * 4:	d61f0200 	br	x16
++ * 8:	ffffffff 	.word	0xffffffff
++ * c:	12345678 	.word	0x12345678
++ *
++ * alternative:
++ * printf '%s\n' '.text' '.global tp' 'tp:' 'adrp x16, 0x0' 'br x16'| aarch64-linux-gnu-as -o test.o
++ * 	- needs pc-relative encoding/decoding + __attribute__((aligned(4096))) functions to jump to
++ *
++ * - nbd for now. will explore once code caves are small.
++ *
++ */
++static inline void generate_trampoline(uint32_t buf[], uint64_t target)
++{
++	buf[0] = 0x58000050u;
++	buf[1] = 0xd61f0200u;
++
++	// now cut it up
++	buf[2] = (uint32_t)(target & 0xFFFFFFFFULL);
++	buf[3] = (uint32_t)(target >> 32);
++
++	return;
++}
++
++// looks for code cave inside __entry_text_start[], __entry_text_end[];
++nodiscard static void *hunt_entry_text_code_cave(void)
++{
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
++	extern char __entry_text_start[], __entry_text_end[];
++	uintptr_t entry_text_start_p = (uintptr_t)__entry_text_start;
++	uintptr_t entry_text_end_p = (uintptr_t)__entry_text_end;
++#else
++	uintptr_t entry_text_start_p = (uintptr_t)kallsyms_lookup_name("__entry_text_start");
++	uintptr_t entry_text_end_p = (uintptr_t)kallsyms_lookup_name("__entry_text_end");
++	if (!entry_text_start_p || !entry_text_end_p)
++		return nullptr;
++#endif
++
++	// d503201f
++	uintptr_t start = entry_text_start_p;
++	uintptr_t end = entry_text_end_p;
++	uintptr_t curr = start;
++
++	uint32_t raw_insn;
++	uint32_t cnt = 0; 
++
++	uintptr_t best_addr_end = 0;
++	uintptr_t addr_end = 0;
++	uint32_t highest = 0;
++
++start_scan:
++	if (curr >= end)
++		goto bail;
++
++
++	if (!!copy_from_kernel_nofault(&raw_insn, (void *)curr, sizeof(uint32_t)))
++		goto reset_cnt;
++
++	if (raw_insn != 0xd503201fU) // aarch64 nop
++		goto reset_cnt;
++
++	cnt++;
++	addr_end = curr;
++	goto increment;
++
++reset_cnt:
++	if (cnt > highest) {
++		highest = cnt;
++		best_addr_end = addr_end;
++	}
++
++	cnt = 0;
++increment:
++	curr = curr + 4;
++	goto start_scan;
++bail:;
++	char cbuf[KSYM_SYMBOL_LEN];
++	sprint_symbol(cbuf, best_addr_end);
++	pr_info("%s: highest: %u end_addr: 0x%lx owned by: %s\n", __func__, highest, best_addr_end, cbuf);
++	if (highest > 16)
++		return (void *)best_addr_end;
++
++	return nullptr;
++}
++
++static DEFINE_MUTEX(trampoline_routine_mutex);
++
++nodiscard static noinline uintptr_t create_landing_pad_kernel(uintptr_t target)
++{
++	if (!target)
++		return 0x0;
++
++	guarded_mutex_lock(&trampoline_routine_mutex);
++	might_sleep();
++
++	uint32_t ibuf; // test that target is reachable
++	if (!!copy_from_kernel_nofault(&ibuf, (void *)target, sizeof(uint32_t))) {
++		pr_info("%s: target unreachable!\n", __func__);
++		return 0x0;
++	}
++
++	void *cave_end = hunt_entry_text_code_cave();
++	if (!cave_end) {
++		pr_info("%s: no sizeable code cave found!\n", __func__);
++		return 0x0;
++	}
++
++	// we get the address of last nop
++	uintptr_t last_nop_addr  = (uintptr_t)cave_end;
++	uintptr_t trampoline_start = last_nop_addr - 3 * sizeof(uint32_t);
++
++	uint32_t arr_insn[4];
++	void *arr_addr[] = { 
++		(void*)(trampoline_start + 0 * sizeof(uint32_t)),
++		(void*)(trampoline_start + 1 * sizeof(uint32_t)),
++		(void*)(trampoline_start + 2 * sizeof(uint32_t)),
++		(void*)(trampoline_start + 3 * sizeof(uint32_t))
++	};
++
++	generate_trampoline(arr_insn, target);
++
++#ifdef CONFIG_KSU_DEBUG
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[0], (uintptr_t)arr_addr[0]);
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[1], (uintptr_t)arr_addr[1]);
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[2], (uintptr_t)arr_addr[2]);
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[3], (uintptr_t)arr_addr[3]);
++#endif
++	int res = aarch64_insn_patch_text(arr_addr, arr_insn, 4);
++	if (res) {
++		pr_info("%s: err: %d\n", __func__, res);
++		return 0x0;
++	}
++
++	ptrdiff_t delta = (ptrdiff_t)trampoline_start - (ptrdiff_t)target;
++	pr_info("%s: trampoline: 0x%lx target: 0x%lx delta: %ld bytes\n", __func__, trampoline_start, target, __builtin_labs(delta));
++	pr_info("%s: trampoline written to: 0x%lx ret: %d\n", __func__, trampoline_start, res);
++	return trampoline_start;
++}
++
++#define NOP_COUNT 64
++#define __tt_stringify2(x) #x
++#define __tt_stringify(x) __tt_stringify2(x)
++asm(
++	".text					\n"
++	".p2align 4				\n" // aligned to 2^4, trampoline is 16 bytes
++	".global arm64_nop_bank			\n"
++"arm64_nop_bank:				\n"
++	".rept "__tt_stringify(NOP_COUNT)"	\n"
++	"nop					\n"
++	".endr					\n"
++);
++extern uint128_t arm64_nop_bank[];
++constexpr unsigned int arm64_nop_bank_max = NOP_COUNT / 4; // 4 nops per trampoline
++static unsigned int arm64_nop_bank_curr = 0;
++
++// tiny bump allocator, locally owned nops
++nodiscard static noinline uintptr_t create_landing_pad_local(uintptr_t target)
++{
++	if (!target)
++		return 0x0;
++
++	guarded_mutex_lock(&trampoline_routine_mutex);
++	might_sleep();
++
++	if (arm64_nop_bank_curr >= arm64_nop_bank_max) {
++		pr_info("%s: nop bank full! \n", __func__);	
++		return 0x0;
++	}
++
++	uint32_t ibuf; // test that target is reachable
++	if (!!copy_from_kernel_nofault(&ibuf, (void *)target, sizeof(uint32_t))) {
++		pr_info("%s: target unreachable!\n", __func__);
++		return 0x0;
++	}
++
++	uintptr_t trampoline_start = (uintptr_t)(void *)&arm64_nop_bank[arm64_nop_bank_curr];
++
++	uint32_t arr_insn[4];
++	void *arr_addr[] = { 
++		(void*)(trampoline_start + 0 * sizeof(uint32_t)),
++		(void*)(trampoline_start + 1 * sizeof(uint32_t)),
++		(void*)(trampoline_start + 2 * sizeof(uint32_t)),
++		(void*)(trampoline_start + 3 * sizeof(uint32_t))
++	};
++
++	generate_trampoline(arr_insn, target);
++
++#ifdef CONFIG_KSU_DEBUG
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[0], (uintptr_t)arr_addr[0]);
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[1], (uintptr_t)arr_addr[1]);
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[2], (uintptr_t)arr_addr[2]);
++	pr_info("%s: .inst 0x%08x to 0x%lx\n", __func__, arr_insn[3], (uintptr_t)arr_addr[3]);
++#endif
++	int res = aarch64_insn_patch_text(arr_addr, arr_insn, 4);
++	if (res) {
++		pr_info("%s: err: %d\n", __func__, res);
++		return 0x0;
++	}
++
++	// bump
++	arm64_nop_bank_curr++;
++
++
++	ptrdiff_t delta = (ptrdiff_t)trampoline_start - (ptrdiff_t)target;
++	pr_info("%s: trampoline: 0x%lx target: 0x%lx delta: %ld bytes\n", __func__, trampoline_start, target, __builtin_labs(delta));
++	pr_info("%s: trampolines: %u of %u used\n", __func__, arm64_nop_bank_curr, arm64_nop_bank_max);
++
++	return trampoline_start;
++}
++
++#ifdef __H_ARM64_BRANCH_PATCH
++nodiscard static int arm64_branch_patch_trampolined(uintptr_t callsite, ptrdiff_t size, uintptr_t symbol_addr, uintptr_t target, bool is_kernel)
++{
++	int ret = arm64_b_or_bl_patch(callsite, size, symbol_addr, target);
++	if (ret != -ERANGE)
++		return ret;
++
++	uintptr_t trampoline = 0x0;
++
++	if (is_kernel)
++		trampoline = create_landing_pad_kernel(target);
++	else
++		trampoline = create_landing_pad_local(target);
++
++	if (!trampoline)
++		return ret;
++
++	return arm64_b_or_bl_patch(callsite, size, symbol_addr, trampoline);
++}
++
++// caller is resposnible for zero initing trampoline
++nodiscard static int arm64_branch_patch_trampolined_reusable(uintptr_t *trampoline, uintptr_t callsite, uintptr_t symbol_addr, uintptr_t target_hook)
++{
++	ptrdiff_t depth = ksu_get_ksym_size(callsite, 256 * sizeof(uint32_t));
++	int ret = arm64_b_or_bl_patch(callsite, depth, symbol_addr, target_hook);
++	if (ret != -ERANGE)
++		return ret;
++	if (!*trampoline)
++		*trampoline = create_landing_pad_kernel(target_hook);
++	if (!!*trampoline)
++		ret = arm64_b_or_bl_patch(callsite, depth, symbol_addr, *trampoline);
++	return ret;
++}
++#endif
++
++#endif // __H_ARM64_TINY_TRAMPOLINE
+diff --git a/kernel/downstream/deprecated/kp_ksud.c b/kernel/downstream/deprecated/kp_ksud.c
+new file mode 100644
+index 00000000..ee49c5dc
+--- /dev/null
++++ b/kernel/downstream/deprecated/kp_ksud.c
+@@ -0,0 +1,154 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++// sys_newfstat rp
++// upstream: https://github.com/tiann/KernelSU/commit/df640917d11dd0eff1b34ea53ec3c0dc49667002
++
++static int sys_newfstat_handler_pre(struct kretprobe_instance *p, struct pt_regs *regs)
++{
++	struct pt_regs *real_regs = PT_REAL_REGS(regs);
++
++	// grab ptr on entry
++	uintptr_t *arg = (uintptr_t *)p->data;
++	arg[0] = (uintptr_t)PT_REGS_SYSCALL_PARM1(real_regs); 
++	arg[1] = (uintptr_t)PT_REGS_PARM2(real_regs); 
++
++	return 0;
++}
++
++static int sys_newfstat_handler_post(struct kretprobe_instance *p, struct pt_regs *regs)
++{
++	uintptr_t *arg = (uintptr_t *)p->data;
++	unsigned int fd = (unsigned int)arg[0];
++	struct stat __user *statbuf = (struct stat __user *)arg[1];
++
++	ksu_handle_newfstat_ret(&fd, &statbuf);
++
++	return 0;
++}
++
++static struct kretprobe sys_newfstat_rp = {
++	.kp.symbol_name = SYS_NEWFSTAT_SYMBOL,
++	.entry_handler = sys_newfstat_handler_pre,
++	.handler = sys_newfstat_handler_post,
++	.data_size = sizeof(uintptr_t) * 2, // int + ptr, should fit
++};
++
++#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
++static int sys_fstat64_handler_pre(struct kretprobe_instance *p, struct pt_regs *regs)
++{
++	struct pt_regs *real_regs = PT_REAL_REGS(regs);
++
++	// grab ptr on entry
++	uintptr_t *arg = (uintptr_t *)p->data;
++	arg[0] = (uintptr_t)PT_REGS_SYSCALL_PARM1(real_regs); 
++	arg[1] = (uintptr_t)PT_REGS_PARM2(real_regs); 
++
++	return 0;
++}
++
++static int sys_fstat64_handler_post(struct kretprobe_instance *p, struct pt_regs *regs)
++{
++	uintptr_t *arg = (uintptr_t *)p->data;
++	unsigned long fd = (unsigned long)arg[0];
++	struct stat64 __user *statbuf = (struct stat64 __user *)arg[1];
++
++	ksu_handle_fstat64_ret(&fd, &statbuf);
++
++	return 0;
++}
++
++static struct kretprobe sys_fstat64_rp = {
++	.kp.symbol_name = SYS_FSTAT64_SYMBOL,
++	.entry_handler = sys_fstat64_handler_pre,
++	.handler = sys_fstat64_handler_post,
++	.data_size = sizeof(uintptr_t) * 2, // long + ptr, should fit
++};
++#endif
++
++// sys_reboot
++static int sys_reboot_handler_pre(struct kprobe *p, struct pt_regs *regs)
++{
++	struct pt_regs *real_regs = PT_REAL_REGS(regs);
++	int *magic1 = (int *)&PT_REGS_SYSCALL_PARM1(real_regs); // ptr so we can mutate this
++	int magic2 = (int)PT_REGS_PARM2(real_regs);
++	int cmd = (int)PT_REGS_PARM3(real_regs);
++	void __user **arg = (void __user **)&PT_REGS_SYSCALL_PARM4(real_regs);
++
++	if (*magic1 != KSU_INSTALL_MAGIC1)
++		return 0;
++
++	// HACK: flip preempt status inside kp
++	// checking not really needed but its cool
++	bool got_flipped = false;
++	if (likely(!preemptible())) {
++		preempt_enable();
++		got_flipped = true;
++	}
++
++	ksu_handle_sys_reboot(*magic1, magic2, cmd, arg);
++
++	if (got_flipped)
++		preempt_disable();
++
++	// to prevent double hooking
++	*magic1 = 0;
++
++	return 0;
++}
++
++static struct kprobe sys_reboot_kp = {
++	.symbol_name = REBOOT_SYMBOL,
++	.pre_handler = sys_reboot_handler_pre,
++};
++
++static int unregister_kprobe_function(void *data)
++{
++	set_user_nice(current, 19); // low prio
++
++loop_start:
++
++	msleep(1000);
++
++	if (*(volatile bool *)&ksu_vfs_read_hook)
++		goto loop_start;
++
++	pr_info("kp_ksud: unregistering kprobes...\n");
++
++	unregister_kretprobe(&sys_newfstat_rp);
++	pr_info("kp_ksud: unregister sys_newfstat_rp!\n");
++
++#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
++	unregister_kretprobe(&sys_fstat64_rp);
++	pr_info("kp_ksud: unregister sys_fstat64_rp!\n");
++#endif
++
++	return 0;
++}
++
++static __init int kp_ksud_init()
++{
++	int ret = register_kprobe(&sys_reboot_kp); // dont unreg this one
++	pr_info("kp_ksud: sys_reboot_kp: %d\n", ret);
++
++	int ret2 = register_kretprobe(&sys_newfstat_rp);
++	pr_info("kp_ksud: sys_newfstat_rp: %d\n", ret2);
++
++#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
++	int ret3 = register_kretprobe(&sys_fstat64_rp);
++	pr_info("kp_ksud: sys_fstat64_rp: %d\n", ret3);
++#endif
++
++	kthread_run(unregister_kprobe_function, NULL, "kp_unreg");
++	return 0;
++}
+diff --git a/kernel/downstream/deprecated/ksu_getpriority.h b/kernel/downstream/deprecated/ksu_getpriority.h
+new file mode 100644
+index 00000000..5e8c1345
+--- /dev/null
++++ b/kernel/downstream/deprecated/ksu_getpriority.h
+@@ -0,0 +1,213 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_GETPRIORITY_FILTER
++#define __KSU_H_GETPRIORITY_FILTER
++
++// an array of 8 bits
++static uint8_t *gp_package_bitmap __read_mostly = nullptr;
++
++// we want 10000 bits
++// app uid = 10000, means bit 0
++// app uid = 10001, means bit 1
++#define gp_bitmap_bits	10000
++#define gp_alloc_size	((gp_bitmap_bits + 7) / 8)
++
++static_assert(sizeof(*gp_package_bitmap) == 1);
++
++static __always_inline bool gp_test_package_bit(int uid)
++{
++	assume_dereferenceable(gp_package_bitmap, gp_alloc_size);
++	if (uid > 20000 || uid < 10000)
++		return false;
++
++	int uid_offset = uid - 10000;
++
++	int byte_idx = uid_offset / 8;
++	int bit_idx = uid_offset % 8;
++
++	// see if bit is set, go to index, & mask to teh array
++	return !!(gp_package_bitmap[byte_idx] & (1 << bit_idx));
++}
++
++void gp_set_package_bit(int uid)
++{
++	assume_dereferenceable(gp_package_bitmap, gp_alloc_size);
++	if (uid > 20000)
++		return;
++
++	if (uid < 10000)
++		return;
++
++	int uid_offset = uid - 10000;
++
++	int byte_idx = uid_offset / 8;
++	int bit_idx  = uid_offset % 8;
++	gp_package_bitmap[byte_idx] |= (1U << bit_idx);
++
++	pr_info("ksu_getpriority: %s: %d is set! \n", __func__, uid);
++	kick_all_cpus_sync();
++}
++
++void gp_reset_bitmap(void)
++{
++	assume_dereferenceable(gp_package_bitmap, gp_alloc_size);
++	memzero_explicit(gp_package_bitmap, gp_alloc_size);
++	pr_info("ksu_getpriority: %s: bitmap reser \n", __func__);
++	kick_all_cpus_sync();
++}
++
++static __always_inline bool ksu_getpriority_should_swap(int which, int who)
++{
++	// return if not unmountable
++	if (!test_thread_flag(TIF_KSU_UNMOUNTABLE))
++		return false;
++
++	// only filter appuid calls
++	int cuid = current_uid().val;
++	if (unlikely(cuid < 10000))
++		return false;
++
++	// try to equalize memory load to all
++	__builtin_prefetch(gp_package_bitmap);
++	barrier();
++
++	if (which != 2)
++		return false;
++
++	if (cuid == who)
++		return false;
++
++	if (who < 10000)
++		return false;
++
++	if (who >= 20000)
++		return false;
++
++//	pr_info("ksu_getpriority: caller: %d paramms: %d / %d comm: %s \n", current_uid().val, which, who, current->comm);
++
++	if (!gp_test_package_bit(who))
++		return false;
++		
++	pr_info("ksu_getpriority: uid: %d is set! \n", who);
++	return true;
++}
++
++#define __AARCH64_getpriority 141
++#define __ARMEABI_getpriority 96
++
++#ifdef CONFIG_ARM64
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
++static syscall_fn_t aarch64_getpriority __read_mostly = nullptr;
++asmlinkage long hook_aarch64_getpriority(const struct pt_regs *regs)
++{
++	extern typeof(hook_aarch64_getpriority) __arm64_sys_getpriority;
++
++	int which = regs->regs[0];
++	int *p_who = (int *)&regs->regs[1];
++
++	if (!!ksu_getpriority_should_swap(which, *p_who))
++		*p_who = 99999;
++
++	return __arm64_sys_getpriority(regs);
++}
++#ifdef CONFIG_COMPAT
++static syscall_fn_t armeabi_getpriority __read_mostly = nullptr;
++asmlinkage long hook_armeabi_getpriority(const struct pt_regs *regs)
++{
++	extern typeof(hook_armeabi_getpriority) __arm64_sys_getpriority;
++
++	int which = regs->regs[0];
++	int *p_who = (int *)&regs->regs[1];
++
++	if (!!ksu_getpriority_should_swap(which, *p_who))
++		*p_who = 99999;
++
++	return __arm64_sys_getpriority(regs);
++}
++#endif	// compat
++#else	/* < 4.19 */
++static void *aarch64_getpriority __read_mostly = nullptr;
++asmlinkage long hook_aarch64_getpriority(int which, int who)
++{
++	int new_who = who;
++	
++	if (!!ksu_getpriority_should_swap(which, who))
++		new_who = 99999;
++
++	return sys_getpriority(which, new_who);
++}
++#ifdef CONFIG_COMPAT
++static void *armeabi_getpriority __read_mostly = nullptr;
++asmlinkage long hook_armeabi_getpriority(int which, int who)
++{
++	int new_who = who;
++	
++	if (!!ksu_getpriority_should_swap(which, who))
++		new_who = 99999;
++
++	return sys_getpriority(which, new_who);
++}
++#endif	// compat
++#endif	/* < 4.19 */
++
++#else	/* ! CONFIG_ARM64 */
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
++static syscall_fn_t armeabi_getpriority __read_mostly = nullptr;
++asmlinkage long hook_armeabi_getpriority(const struct pt_regs *regs)
++{
++	extern typeof(hook_armeabi_getpriority) sys_getpriority;
++
++	int which = regs->regs[0];
++	int *p_who = (int *)&regs->regs[1];
++
++	if (!!ksu_getpriority_should_swap(which, *p_who))
++		*p_who = 99999;
++
++	return sys_getpriority(regs);
++}
++#else	/* < 4.19 */
++static void *armeabi_getpriority __read_mostly = nullptr;
++asmlinkage long hook_armeabi_getpriority(int which, int who)
++{
++	int new_who = who;
++	
++	if (!!ksu_getpriority_should_swap(which, who))
++		new_who = 99999;
++
++	return sys_getpriority(which, new_who);
++}
++#endif	/* < 4.19 */
++#endif	/* ! CONFIG_ARM64 */
++
++static void ksu_getpriority_init()
++{
++	static_assert(PAGE_SIZE > gp_alloc_size);
++
++	gp_package_bitmap = get_zeroed_page(GFP_KERNEL | __GFP_NOFAIL);
++	pr_info("ksu_getpriority: page allocated at: 0x%lx, %u / %u bytes\n", (uintptr_t)gp_package_bitmap, gp_alloc_size, PAGE_SIZE);
++
++#ifdef CONFIG_ARM64
++	replace_syscall((void *)&aarch64_getpriority, __AARCH64_getpriority, (void *)hook_aarch64_getpriority, (void *)sys_call_table);
++#ifdef CONFIG_COMPAT
++	replace_syscall((void *)&armeabi_getpriority, __ARMEABI_getpriority, (void *)hook_armeabi_getpriority, (void *)compat_sys_call_table);
++#endif
++#else
++	replace_syscall((void *)&armeabi_getpriority, __ARMEABI_getpriority, (void *)hook_armeabi_getpriority, (void *)sys_call_table);
++#endif
++
++	return;
++}
++
++#endif // __KSU_H_GETPRIORITY_FILTER
+diff --git a/kernel/downstream/deprecated/module_blacklist.h b/kernel/downstream/deprecated/module_blacklist.h
+new file mode 100644
+index 00000000..5c7a5e6c
+--- /dev/null
++++ b/kernel/downstream/deprecated/module_blacklist.h
+@@ -0,0 +1,135 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_MODULE_BLACKLIST
++#define __KSU_H_MODULE_BLACKLIST
++
++// split with ,
++#define MODULES_TO_BLOCK "ksu,kernelsu"
++
++static int ksu_prepare_new_blacklist(uintptr_t blacklist_pptr)
++{
++	static_assert(sizeof(MODULES_TO_BLOCK) > 0);
++	const char *modules = MODULES_TO_BLOCK;
++	size_t old_len;
++	if (!*(char **)blacklist_pptr)
++		old_len = 0;
++	else
++		old_len = strlen(*(char **)blacklist_pptr);
++
++	// + 2 for extra , and \0
++	size_t new_len = old_len + strlen(modules) + 2;
++	char *new_blacklist = kzalloc(new_len, GFP_KERNEL); // yeah, unfreed, not a big deal tho
++	if (!new_blacklist)
++		return -ENOMEM;
++
++	if (!old_len)
++		goto write_fresh;
++
++	memcpy(new_blacklist, *(char **)blacklist_pptr, old_len);
++	new_blacklist[old_len] = ',';
++	memcpy(new_blacklist + old_len + 1, modules, strlen(modules));
++	goto write_to_slot;
++
++write_fresh:
++	memcpy(new_blacklist, modules, strlen(modules));
++
++write_to_slot:
++	patch_ro_slot((uintptr_t)blacklist_pptr, (uintptr_t)new_blacklist);
++
++	return 0;
++}
++#undef MODULES_TO_BLOCK
++
++static uintptr_t ksu_read_module_blacklist()
++{
++	char **module_blacklist_pptr = kallsyms_lookup_name("module_blacklist");
++	if (!module_blacklist_pptr)
++		return 0x0;
++
++	char *module_blacklist = *module_blacklist_pptr;
++	pr_info("module_blackist: 0x%lx with %s\n", (uintptr_t)module_blacklist, module_blacklist);
++	
++	return module_blacklist_pptr;
++}
++
++#define __AARCH64_init_module 105
++static syscall_fn_t aarch64_init_module __read_mostly = nullptr;
++asmlinkage long hook_aarch64_init_module_ret(const struct pt_regs *regs)
++{
++	extern long __arm64_sys_init_module(const struct pt_regs *regs);
++	long ret = __arm64_sys_init_module(regs);
++	if (ret == -EPERM)
++		return 0;
++	return ret;
++}
++
++#define __AARCH64_finit_module 273
++static syscall_fn_t aarch64_finit_module __read_mostly = nullptr;
++asmlinkage long hook_aarch64_finit_module_ret(const struct pt_regs *regs)
++{
++	extern long __arm64_sys_finit_module(const struct pt_regs *regs);
++	long ret = __arm64_sys_finit_module(regs);
++	if (ret == -EPERM)
++		return 0;
++	return ret;
++}
++
++static int ksu_unhook_syscall_init_module(void *unused)
++{
++	set_user_nice(current, 19); // low prio
++	pr_info("%s: kthread init!\n", __func__);
++
++start:
++	// watchdog will flip this anyway, we can loop forever
++	if (!!*(volatile bool *)&ksu_boot_completed)
++		goto cleanup;
++
++	msleep(10000);
++	goto start;
++
++cleanup:
++
++	restore_syscall((void *)&aarch64_init_module, __AARCH64_init_module, (void *)hook_aarch64_init_module_ret, (void *)sys_call_table);
++	restore_syscall((void *)&aarch64_finit_module, __AARCH64_finit_module, (void *)hook_aarch64_finit_module_ret, (void *)sys_call_table);
++
++	pr_info("%s: kthread exit!\n", __func__);
++	return 0;
++}
++
++static inline void ksu_hook_syscall_init_module(void)
++{
++	replace_syscall((void *)&aarch64_init_module, __AARCH64_init_module, (void *)hook_aarch64_init_module_ret, (void *)sys_call_table);
++	replace_syscall((void *)&aarch64_finit_module, __AARCH64_finit_module, (void *)hook_aarch64_finit_module_ret, (void *)sys_call_table);
++
++	kthread_run(ksu_unhook_syscall_init_module, NULL, "kthread");
++}
++
++static noinline void ksu_extend_module_blacklist()
++{
++	uintptr_t blacklist_pptr = ksu_read_module_blacklist();
++	if (!blacklist_pptr)
++		return;
++
++	int ret = ksu_prepare_new_blacklist(blacklist_pptr);
++	if (!ret)
++		pr_info("module_blackist: 0x%lx extended with %s\n", (uintptr_t)*(void **)blacklist_pptr, *(char **)blacklist_pptr);
++	else
++		pr_info("module_blackist: operation failed! ret: %d \n", ret);
++
++	ksu_hook_syscall_init_module();
++
++	return;
++}
++
++#endif // __KSU_H_MODULE_BLACKLIST
+diff --git a/kernel/downstream/kallsyms_common.h b/kernel/downstream/kallsyms_common.h
+new file mode 100644
+index 00000000..f306aae1
+--- /dev/null
++++ b/kernel/downstream/kallsyms_common.h
+@@ -0,0 +1,537 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_KALLSYMS_COMMON
++#define __KSU_H_KALLSYMS_COMMON
++
++// kallsyms_lookup_name / sprint_symbol hacky AF symbol bruteforce
++// WARNING: use only when needed! brittle code!
++
++static noinline uint64_t chibihash64_wrapper(const char *input)
++{
++	return chibihash64((void *)input, (ptrdiff_t)strnlen(input, KSYM_SYMBOL_LEN), 0ULL);
++}
++
++struct symbol_hash_entry {
++	uint64_t hash;
++	uintptr_t addr;
++};
++
++static void *kallsyms_hash_array = nullptr;
++static size_t kallsyms_hash_array_entry_count = 0;
++static size_t kallsyms_hash_array_capacity = 0;
++
++// TODO: rethink syncronization
++static DEFINE_MUTEX(kallsyms_hash_array_mutex);
++static volatile bool kallsyms_hash_array_ready __read_mostly = false;
++
++// use this old version of kvrealloc to have full control on old size and new size.
++// not a big deal, lets bring it with us.
++static inline void *old_kvrealloc(const void *p, size_t oldsize, size_t newsize, gfp_t flags)
++{
++	void *newp;
++
++	if (oldsize >= newsize)
++		return (void *)p;
++	newp = kvmalloc(newsize, flags);
++	if (!newp)
++		return nullptr;
++	memcpy(newp, p, oldsize);
++	kvfree(p);
++	return newp;
++}
++
++static inline void insert_to_kallsyms_array(const char *str, uintptr_t addr)
++{
++	if (!str || !addr)
++		return;
++
++	struct symbol_hash_entry *entries = (struct symbol_hash_entry *)kallsyms_hash_array;
++	uint64_t hash = chibihash64_wrapper(str);
++
++	if (!entries)
++		goto skip_anti_dup;
++
++	size_t i;
++	for (i = 0; i < kallsyms_hash_array_entry_count; i++) {
++		if (entries[i].hash == hash)
++			return;
++	}
++
++skip_anti_dup:;
++	if (kallsyms_hash_array_entry_count < kallsyms_hash_array_capacity)
++		goto size_is_sufficient;
++
++	// size insufficient, so we need to resize our memery
++	// lets just go double everytime
++	size_t new_cap;
++	if (!kallsyms_hash_array_capacity)
++		new_cap = 256; // init 256 slots
++	else
++		new_cap = kallsyms_hash_array_capacity * 2;
++
++	size_t old_sz = kallsyms_hash_array_capacity * sizeof(struct symbol_hash_entry);
++	size_t new_sz = new_cap * sizeof(struct symbol_hash_entry);
++
++	void *new_array = old_kvrealloc(kallsyms_hash_array, old_sz, new_sz, GFP_KERNEL);
++	if (!new_array)
++		return;
++
++	pr_info("%s: hash array resized! %ld -> %ld bytes \n", __func__, old_sz, new_sz);
++	kallsyms_hash_array = new_array;
++	kallsyms_hash_array_capacity = new_cap;
++	entries = kallsyms_hash_array;
++
++size_is_sufficient:
++
++	entries[kallsyms_hash_array_entry_count].hash = hash;
++	entries[kallsyms_hash_array_entry_count].addr = addr;
++	kallsyms_hash_array_entry_count++;
++}
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 5, 0)
++__weak int sprint_symbol_no_offset(char *buffer, unsigned long address)
++{ 
++	int ret = sprint_symbol(buffer, address);
++	if (!(ret > 0))
++		return ret;
++	
++	char *plus = strnchr(buffer, KSYM_SYMBOL_LEN, '+');
++	if (plus) {
++		plus[0] = 0;
++		ret = plus - buffer; // cut
++	}
++	return ret;
++}
++#endif
++
++#ifdef MODULE
++/**
++ *  kallsyms_lookup_size_offset from sprint_symbol actually
++ */
++static int compat_kallsyms_lookup_size_offset(unsigned long addr, unsigned long *symbolsize, unsigned long *offset)
++{
++	char buf[KSYM_SYMBOL_LEN];
++	unsigned long u_sz;
++	unsigned long u_off;
++
++	if (!addr || !symbolsize || !offset)
++		return 0;
++
++	if (!(sprint_symbol(buf, addr) > 0))
++		return 0;		
++	
++//	pr_info("symbol is: %s \n", buf);
++
++	char *c_sz = strchr(buf, '/');
++	if (!c_sz)
++		return 0;		
++
++	if (kstrtoul(c_sz + 1, 0, &u_sz))
++		return 0;		
++
++	// null '/', strtok called back.
++	c_sz[0] = 0;
++
++	char *c_off = strchr(buf, '+');
++	if (!c_off)
++		return 0;	
++
++	if (kstrtoul(c_off + 1, 0, &u_off))
++		return 0;		
++
++//	pr_info("symbol_size: %zu \n", u_sz);
++//	pr_info("symbol_offset: %zu \n", u_off);
++
++	*symbolsize = u_sz;
++	*offset = u_off;
++	return 1; // ret 1 for success
++}
++
++// https://elixir.bootlin.com/linux/v7.2-rc4/source/kernel/kprobes.c#L1506
++static __nocfi int ksu_kallsyms_lookup_size_offset(unsigned long addr, unsigned long *symbolsize, unsigned long *offset)
++{
++	static typeof(ksu_kallsyms_lookup_size_offset) *fn = nullptr;
++	static bool initialized = false;
++
++	if (!initialized) {
++		*(void **)&fn = (void *)kallsyms_lookup_name("kallsyms_lookup_size_offset");
++		initialized = true;
++	}
++
++	if (fn)
++		return fn(addr, symbolsize, offset);
++
++	return compat_kallsyms_lookup_size_offset(addr, symbolsize, offset);
++}
++#define kallsyms_lookup_size_offset ksu_kallsyms_lookup_size_offset
++#endif
++
++static noinline void dotted_kallsyms_build_hash_array(void)
++{
++	extern char _stext[], _etext[];
++	uintptr_t start = (uintptr_t)_stext;
++	uintptr_t end = (uintptr_t)_etext;
++	uintptr_t iter_count = 0;
++
++	char symbol_buf[KSYM_SYMBOL_LEN];
++	cond_resched();
++	pr_info("%s: hash array init! \n", __func__);
++
++	uintptr_t curr = start;
++
++scan_start:
++	iter_count++;
++
++	char *slash = nullptr;
++	if (sprint_symbol(symbol_buf, curr) <= 0)
++		goto step_up;
++
++	slash = strchr(symbol_buf, '/');
++
++	// however we should not use cfi_jt for this
++	// what we want is the target of that cfi_jt
++	if (strstr(symbol_buf, ".cfi_jt"))
++		goto step_up;
++
++	// we should not use isra/constprop/part for this as gcc folded this functiom
++	// this has destroyed calling convention, hooking this is catastrophic!
++	if ( strstr(symbol_buf, ".isra.") || strstr(symbol_buf, ".constprop.") || strstr(symbol_buf, ".part.") )
++		goto step_up;
++
++	// cut it with these to make sure its a match
++	// .llvm.505034 or .lto_priv.0
++	char *dot_ptr = strchr(symbol_buf, '.');
++	if (dot_ptr)
++		dot_ptr[0] = 0;
++
++	char *dollar_ptr = strchr(symbol_buf, '$');
++	if (dollar_ptr)
++		dollar_ptr[0] = 0;
++
++	if (!dot_ptr && !dollar_ptr)
++		goto step_up;
++
++//	pr_info("insert: %s \n", symbol_buf);
++	insert_to_kallsyms_array(symbol_buf, curr);
++
++step_up:;
++	unsigned long sym_sz = sizeof(uint32_t);
++	if (slash && !!kstrtoul(slash + 1, 0, &sym_sz))
++		sym_sz = sizeof(uint32_t);
++
++	curr = curr + sym_sz;
++	if (curr < end)
++		goto scan_start;
++
++	pr_info("%s: scan done! total items: %zu, iter_count: %lu\n", __func__, kallsyms_hash_array_entry_count, iter_count);
++
++	return;
++}
++
++static noinline uintptr_t kallsyms_lookup_hashed_name(const char *name)
++{
++	if (!name || !kallsyms_hash_array)
++		return 0x0;
++
++	uint64_t input_hash = chibihash64_wrapper(name);
++	struct symbol_hash_entry *entries = (struct symbol_hash_entry *)kallsyms_hash_array;
++	char symbol_buf[KSYM_SYMBOL_LEN];
++	size_t i;
++
++	for (i = 0; i < kallsyms_hash_array_entry_count; i++) {
++		if (entries[i].hash == input_hash)
++			goto found;
++	}
++
++	pr_info("%s: not found: %s hash: 0x%llx\n", __func__, name, input_hash);
++	return 0x0;
++
++found:
++	sprint_symbol_no_offset(symbol_buf, entries[i].addr);
++
++	// sanity check, hash collision might occur
++	if (unlikely(!strstarts(symbol_buf, name)))
++		goto collision_found;
++
++	pr_info("%s: %s hash: 0x%llx at 0x%lx\n", __func__, symbol_buf, input_hash, entries[i].addr);
++	return entries[i].addr;
++
++collision_found:
++	// this is unlikely, but hell yeah lets log it if it happens
++	pr_info("%s: chibihash64 collision! name: %s symbol_buf: %s hash: 0x%llx\n", __func__, name, symbol_buf, input_hash);
++	return 0x0;
++}
++
++// ksu says this isnt always available so lets use an fn ptr when using it on LKM
++struct lookup_args {
++	const char *target_name;
++	uintptr_t target_addr;
++};
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
++static int kallsyms_on_each_symbol_cb(void *data, const char *name, unsigned long addr)
++#else
++struct module;
++static int kallsyms_on_each_symbol_cb(void *data, const char *name, struct module *module, unsigned long addr)
++#endif
++{
++	struct lookup_args *args = (struct lookup_args *)data;
++	char namebuf[KSYM_SYMBOL_LEN];
++
++	// however we should not use cfi_jt for this
++	// what we want is the target of that cfi_jt
++	if (strstr(name, ".cfi_jt"))
++		return 0;
++
++	// we should not use isra/constprop/part for this as gcc folded this functiom
++	// this has destroyed calling convention, hooking this is catastrophic!
++	if ( strstr(name, ".isra.") || strstr(name, ".constprop.") || strstr(name, ".part.") )
++		return 0;
++
++	// terminate dot and compare
++	strscpy(namebuf, name, KSYM_SYMBOL_LEN);
++	char *dot_ptr = strchr(namebuf, '.');
++	if (dot_ptr)
++		dot_ptr[0] = 0;
++
++	char *dollar_ptr = strchr(namebuf, '$');
++	if (dollar_ptr)
++		dollar_ptr[0] = 0;
++
++	if (!!strcmp(namebuf, args->target_name))
++		return 0;
++	
++	// return match
++	args->target_addr = addr;
++	return 1;
++}
++
++#ifdef MODULE
++static __nocfi int ksu_kallsyms_on_each_symbol(void *cb, void *data)
++{
++	static typeof(kallsyms_on_each_symbol) *fn = nullptr;
++	static bool initialized = false;
++
++	if (!initialized) {
++		fn = (void *)kallsyms_lookup_name("kallsyms_on_each_symbol");
++		initialized = true;
++	}
++	if (!fn)
++		return 0;
++
++	return fn(cb, data);
++}
++#define kallsyms_on_each_symbol(cb, data) ksu_kallsyms_on_each_symbol((void *)cb, data)
++#endif
++
++static uintptr_t try_kallsyms_on_each_symbol(const char *name)
++{
++	struct lookup_args args;
++	args.target_name = name;
++	args.target_addr = 0x0;
++
++	int ret = kallsyms_on_each_symbol(kallsyms_on_each_symbol_cb, &args);
++	if (IS_ENABLED(CONFIG_KSU_DEBUG) && ret && args.target_addr)
++		pr_info("kallsyms_on_each_symbol: success! %s at 0x%lx\n", name, args.target_addr);
++
++	return args.target_addr;
++}
++
++#ifdef CONFIG_KPROBES // kprobes based symbol resolver.
++static uintptr_t kp_kallsyms_lookup_name(const char *name)
++{
++	struct kprobe kp = { .symbol_name = name };
++	if (!!register_kprobe(&kp))
++		return 0x0;
++
++	uintptr_t addr = (uintptr_t)kp.addr;
++	unregister_kprobe(&kp);
++
++	pr_info("%s: success! %s at 0x%lx\n", __func__, name, addr);
++	return addr;
++}
++#else
++#define kp_kallsyms_lookup_name(name) ({ 0x0; })
++#endif
++
++/**
++ * Usage:
++ *	kallsyms_lookup_retry("name")
++ *	kallsyms_lookup_retry("name", op)
++ *
++ * if called within kthread, this will try to build a kallsyms 
++ * hash array when everything failed unless noscan is flagged.
++ *
++ */
++#define lookup_scan	0 // scan, default
++#define lookup_noscan	1 // no scan
++static noinline uintptr_t kallsyms_lookup_retry_op(const char *name, int op)
++{
++	if (!name)
++		return 0x0;
++
++	uintptr_t addr = (uintptr_t)kallsyms_lookup_name(name);
++	if (addr)
++		goto found;
++
++	addr = kp_kallsyms_lookup_name(name);
++	if (addr)
++		goto found;
++
++	addr = try_kallsyms_on_each_symbol(name);
++	if (addr)
++		goto found;
++
++	if (kallsyms_hash_array_ready)
++		addr = kallsyms_lookup_hashed_name(name);
++	if (addr)
++		goto found;		
++
++	if (op == lookup_noscan)
++		return 0x0;
++
++	// only kthread is allowed to go further
++	if (!(current->flags & PF_KTHREAD))
++		return 0x0;
++
++	mutex_lock(&kallsyms_hash_array_mutex);
++	if (!kallsyms_hash_array_ready) {
++		dotted_kallsyms_build_hash_array();
++		kallsyms_hash_array_ready = true;
++		smp_mb();
++	}
++	mutex_unlock(&kallsyms_hash_array_mutex);
++
++	return kallsyms_lookup_hashed_name(name);
++
++found:;
++	char namebuf[KSYM_NAME_LEN];
++	sprint_symbol_no_offset(namebuf, addr);
++	pr_info("kallsyms_lookup_retry: %s addr: 0x%lx \n", namebuf, addr);
++	return addr;
++}
++#define __kallsyms_lookup_retry(name, mode, ...) kallsyms_lookup_retry_op(name, mode)
++#define kallsyms_lookup_retry(name, ...) __kallsyms_lookup_retry(name, ##__VA_ARGS__, lookup_scan)
++
++// NOTE: absolute minimum compat, just to appease API.
++static int kallsyms_lookup_batched(const char *const *names, unsigned long *addrs, u32 count)
++{
++	int resolved = 0;
++	u32 i = 0;
++
++	if (!names || !addrs)
++		return -EINVAL;
++
++loop_start:
++	if (!names[i])
++		goto next;
++
++	addrs[i] = (unsigned long)kallsyms_lookup_retry(names[i]);
++	if (!addrs[i])
++		goto next;
++
++	if (is_module_address(addrs[i])) {
++		addrs[i] = 0; // null module address
++		goto next;
++	}
++
++	resolved++;
++next:
++	i++;
++	if (i < count)
++		goto loop_start;
++
++	return resolved;
++}
++
++// compat to official ksu
++#define find_kernel_symbol_exact 	kallsyms_lookup_retry
++#define ksu_lookup_kernel_symbols	kallsyms_lookup_batched
++
++// ksu_get_ksym_size, return symbol size, return retfail if fail.
++static noinline size_t ksu_get_ksym_size(uintptr_t symbol_addr, size_t retfail)
++{
++	// https://github.com/backslashxx/KernelSU/pull/35
++	unsigned long offset = 0;
++	unsigned long symbolsize = 0;
++
++	// means lookup failed, just return retfail
++	if (!kallsyms_lookup_size_offset(symbol_addr, &symbolsize, &offset))
++		return retfail;		
++
++	if (!symbolsize && !offset)
++		return retfail;
++
++	// pr_info("%s: symbolsize %d \n", __func__, symbolsize);
++
++	return symbolsize;
++}
++
++/*
++ * two possible users so far
++ * this macro based refcounting timebomb is just me being responsible
++ * letting this leak is not actually a big deal, maybe 512kb at most
++ *
++ * "if something was created and no one was around to free it, 
++ *  is it a memory leak? or just permanent cache?"
++ *  -- some retard "developer" using garbage collection
++ *
++ */
++#ifdef CONFIG_KSU_HACK_ARM64_BRANCH_LINK
++#define HASH_ARRAY_USER1 1
++#else
++#define HASH_ARRAY_USER1 0
++#endif
++
++#if defined(CONFIG_AUDIT) && defined(CONFIG_ARM64) && defined(CONFIG_KALLSYMS)
++#define HASH_ARRAY_USER2 1
++#else
++#define HASH_ARRAY_USER2 0
++#endif
++
++#define TOTAL_HASH_ARRAY_USERS (HASH_ARRAY_USER1 + HASH_ARRAY_USER2)
++
++static void dotted_kallsyms_destroy_hash_array(void)
++{
++	guarded_mutex_lock(&kallsyms_hash_array_mutex);
++
++	static volatile int entry_count = 0;
++
++	entry_count++;
++	if (entry_count != TOTAL_HASH_ARRAY_USERS)
++		return;
++
++	if (!kallsyms_hash_array)
++		return;
++
++	pr_info("%s: addr: 0x%lx entries: %u capacity: %u\n", __func__, (uintptr_t)kallsyms_hash_array, kallsyms_hash_array_entry_count, kallsyms_hash_array_capacity);
++
++	memzero_explicit(kallsyms_hash_array, kallsyms_hash_array_entry_count * sizeof(struct symbol_hash_entry));
++
++	kvfree(kallsyms_hash_array);
++
++	kallsyms_hash_array = nullptr;
++	kallsyms_hash_array_entry_count = 0;
++	kallsyms_hash_array_capacity = 0;
++
++	constexpr char hw[] = "Hello, world!";
++	pr_info("chibihash64: '%s' #: 0x%llx \n", hw, chibihash64(hw, sizeof(hw) - 1, 0ULL));
++
++}
++
++#undef HASH_ARRAY_USER1
++#undef HASH_ARRAY_USER2
++#undef TOTAL_HASH_ARRAY_USERS
++
++#endif // __KSU_H_KALLSYMS_COMMON
+diff --git a/kernel/downstream/kprobes_common.h b/kernel/downstream/kprobes_common.h
+new file mode 100644
+index 00000000..1c580e2d
+--- /dev/null
++++ b/kernel/downstream/kprobes_common.h
+@@ -0,0 +1,37 @@
++#ifndef __KSU_H_KPROBES_COMMON
++#define __KSU_H_KPROBES_COMMON
++
++// heapified kprobe registration, copied from upstream
++static struct kprobe *init_kprobe(const char *name, kprobe_pre_handler_t handler)
++{
++	struct kprobe *kp = kzalloc(sizeof(struct kprobe), GFP_KERNEL);
++	if (!kp)
++		return nullptr;
++
++	kp->symbol_name = name;
++	kp->pre_handler = handler;
++
++	int ret = register_kprobe(kp);
++	pr_info("%s: register %s kprobe: %d\n", __func__, name, ret);
++	if (ret) {
++		kfree(kp);
++		return nullptr;
++	}
++
++	return kp;
++}
++
++static void destroy_kprobe(struct kprobe **kp_ptr)
++{
++	struct kprobe *kp = *kp_ptr;
++	if (!kp)
++		return;
++
++	unregister_kprobe(kp);
++	synchronize_rcu();
++	kfree(kp);
++	*kp_ptr = nullptr;
++}
++
++#endif // __KSU_H_KPROBES_COMMON
++
+diff --git a/kernel/downstream/ksu_hostsredirect.h b/kernel/downstream/ksu_hostsredirect.h
+new file mode 100644
+index 00000000..7fc37efe
+--- /dev/null
++++ b/kernel/downstream/ksu_hostsredirect.h
+@@ -0,0 +1,203 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_HOSTSREDIRECT
++#define __KSU_H_HOSTSREDIRECT
++
++static bool ksu_kernel_umount_enabled __read_mostly;
++
++static __always_inline void ksu_hosts_file_redirect(const char __user *filename, int flags, int *fd_ptr)
++{
++	if (likely(test_thread_flag(TIF_KSU_UNMOUNTABLE)))
++		return;
++
++	if (likely(!ksu_module_mounted))
++		return;
++
++	if (likely(!ksu_kernel_umount_enabled))
++		return;
++
++	constexpr char hf[] = "/system/etc/hosts";
++
++	uint64_t *hf_p = (uint64_t *)hf;
++	uint64_t __user *fn_p = (uint64_t __user *)untagged_addr((void *)filename);
++	__builtin_prefetch(fn_p);
++
++	uint16_t *last_p = (uint16_t *)((char *)hf + 16);
++	uint16_t buf16;
++	if (likely(get_user(buf16, (uint16_t __user *)((char __user *)fn_p + 16))))
++		return;
++
++	if (likely((buf16 != *last_p)))
++		return;
++
++#ifdef CONFIG_64BIT
++	uint64_t buf64;
++	if (get_user(buf64, &fn_p[1]))
++		return;
++
++	if (buf64 != hf_p[1])
++		return;
++
++	if (get_user(buf64, &fn_p[0]))
++		return;
++
++	if (buf64 != hf_p[0])
++		return;
++#else
++	char cbuf[16];
++	if (!!copy_from_user(cbuf, (void __user *)fn_p, 16))
++		return;
++
++	if (!!memcmp_inline(cbuf, hf, 16))
++		return;
++#endif
++	//pr_info("%s: intercepting %s for comm: %s pid: %d\n", __func__, hf, current->comm, current->pid);
++
++	const struct cred *saved = override_creds(ksu_cred);
++	struct file *filp = filp_open("/data/adb/hosts", O_RDONLY, 0);
++	revert_creds(saved);
++
++	if (IS_ERR(filp))
++		return;
++
++	if (!is_compat_task() && force_o_largefile())
++		flags |= O_LARGEFILE;
++
++	int fd = get_unused_fd_flags(flags);
++	if (fd < 0) {
++		fput(filp);
++		return;
++	}
++
++	fd_install(fd, filp);
++	*fd_ptr = fd;
++
++	return;
++}
++
++#define __AARCH64_openat 56
++#define __ARMEABI_openat 322
++
++#ifdef CONFIG_ARM64
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
++static syscall_fn_t aarch64_openat __read_mostly = nullptr;
++extern long __arm64_sys_openat(const struct pt_regs *regs);
++asmlinkage long hook_aarch64_openat(const struct pt_regs *regs)
++{
++	const char __user *filename = (const char __user *)regs->regs[1];
++	int flags = (int)regs->regs[2];
++
++	int fd = -1;
++	ksu_hosts_file_redirect(filename, flags, &fd);
++	if (fd != -1)
++		return fd;
++orig_fn:
++	return __arm64_sys_openat(regs);
++}
++
++#ifdef CONFIG_COMPAT
++static syscall_fn_t armeabi_openat __read_mostly = nullptr;
++extern long __arm64_compat_sys_openat(const struct pt_regs *regs);
++asmlinkage long hook_armeabi_openat(const struct pt_regs *regs)
++{
++	const char __user *filename = (const char __user *)regs->regs[1];
++	int flags = (int)regs->regs[2];
++
++	int fd = -1;
++	ksu_hosts_file_redirect(filename, flags, &fd);
++	if (fd != -1)
++		return fd;
++orig_fn:
++	return __arm64_compat_sys_openat(regs);
++}
++#endif // CONFIG_COMPAT
++#else /* < 4.19 */
++static void *aarch64_openat __read_mostly = nullptr;
++asmlinkage long hook_aarch64_openat(int dfd, const char __user *filename, int flags, umode_t mode)
++{
++	int fd = -1;
++	ksu_hosts_file_redirect(filename, flags, &fd);
++	if (fd != -1)
++		return fd;
++orig_fn:
++	return sys_openat(dfd, filename, flags, mode);
++}
++
++#ifdef CONFIG_COMPAT
++extern const void *compat_sys_call_table[];
++static void *armeabi_openat __read_mostly = nullptr;
++asmlinkage long hook_armeabi_openat(int dfd, const char __user *filename, int flags, umode_t mode)
++{
++	int fd = -1;
++	ksu_hosts_file_redirect(filename, flags, &fd);
++	if (fd != -1)
++		return fd;
++orig_fn:
++	return compat_sys_openat(dfd, filename, flags, mode);
++}
++#endif // CONFIG_COMPAT
++#endif  /* < 4.19 */
++
++#else /* ARM */
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
++static syscall_fn_t armeabi_openat __read_mostly = nullptr;
++extern long sys_openat(const struct pt_regs *regs);
++asmlinkage long hook_armeabi_openat(const struct pt_regs *regs)
++{
++	const char __user *filename = (const char __user *)regs->regs[1];
++	int flags = (int)regs->regs[2];
++
++	int fd = -1;
++	ksu_hosts_file_redirect(filename, flags, &fd);
++	if (fd != -1)
++		return fd;
++orig_fn:
++	return sys_openat(regs);
++}
++#else /* < 4.19 */
++static void *armeabi_openat __read_mostly = nullptr;
++asmlinkage long hook_armeabi_openat(int dfd, const char __user *filename, int flags, umode_t mode)
++{
++	int fd = -1;
++	ksu_hosts_file_redirect(filename, flags, &fd);
++	if (fd != -1)
++		return fd;
++orig_fn:
++	return sys_openat(dfd, filename, flags, mode);
++}
++#endif /* < 4.19 */
++#endif /* ARM */
++
++static void ksu_hostsredirect_init()
++{
++	// we unhook at boot complete if /data/adb/hosts does not exist
++	struct path kpath;
++	if (!!kern_path("/data/adb/hosts", 0, &kpath))
++		return;
++
++	path_put(&kpath);
++	pr_info("ksu_hostsredirect: /data/adb/hosts found! hooking sys_openat \n");
++#ifdef CONFIG_ARM64
++	replace_syscall((void *)&aarch64_openat, __AARCH64_openat, (void *)hook_aarch64_openat, native_sct);
++# ifdef CONFIG_COMPAT
++	replace_syscall((void *)&armeabi_openat, __ARMEABI_openat, (void *)hook_armeabi_openat, compat_sct);
++# endif
++#else
++	replace_syscall((void *)&armeabi_openat, __AARCH64_openat, (void *)hook_armeabi_openat, native_sct);
++#endif
++	return;
++}
++
++#endif // __KSU_H_HOSTSREDIRECT
+diff --git a/kernel/downstream/slow_avc_audit_defs.h b/kernel/downstream/slow_avc_audit_defs.h
+new file mode 100644
+index 00000000..d5919f80
+--- /dev/null
++++ b/kernel/downstream/slow_avc_audit_defs.h
+@@ -0,0 +1,201 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_SLOW_AVC_AUDIT_HOOK
++#define __KSU_H_SLOW_AVC_AUDIT_HOOK
++
++static bool ksu_selinux_hide_enabled;
++static u32 cached_su_sid;
++static u32 priv_app_sid __read_mostly = 0;
++
++static inline int ksu_selinux_get_sids()
++{
++	int err = security_secctx_to_secid("u:r:priv_app:s0:c512,c768", strlen("u:r:priv_app:s0:c512,c768"), &priv_app_sid);
++	if (!err)
++		pr_info("selinux_hide: priv_app_sid: %u\n", priv_app_sid);
++
++	if (!priv_app_sid)
++		return -1;
++
++	return 0;
++}
++
++static __always_inline void ksu_slow_avc_audit_inline(u32 *tsid)
++{
++	if (unlikely(!ksu_selinux_hide_enabled))
++		return;
++
++	// won't happen. this is unreachable if so
++	//if (unlikely(!priv_app_sid))
++	//	return;
++
++	if (*tsid != cached_su_sid)
++		return;
++
++	pr_info("selinux_hide: slow_avc_audit: replace tsid: %u with priv_app_sid: %u\n", *tsid, priv_app_sid);
++	*tsid = priv_app_sid;
++}
++
++#if defined(CONFIG_AUDIT) && defined(CONFIG_ARM64) && defined(CONFIG_KALLSYMS)
++
++struct selinux_state;
++__maybe_unused void ksu_slow_avc_audit(u32 *tsid) { return; } // dummy
++
++extern typeof(slow_avc_audit) slow_avc_audit;
++
++#define SLOW_AVC_AUDIT_TYPE_1	u32 ssid, u32 tsid, u16 tclass, u32 requested, u32 audited, u32 denied, int result, struct common_audit_data *a
++__overloaded static int ksu_slow_avc_audit_handler_1(SLOW_AVC_AUDIT_TYPE_1)
++{
++	ksu_slow_avc_audit_inline(&tsid);
++
++	assume(!!&slow_avc_audit);
++	return ((typeof(ksu_slow_avc_audit_handler_1) *)(void *)slow_avc_audit)(ssid, tsid, tclass, requested, audited, denied, result, a);
++}
++
++#define SLOW_AVC_AUDIT_TYPE_2	struct selinux_state *state, u32 ssid, u32 tsid, u16 tclass, u32 requested, u32 audited, u32 denied, int result, struct common_audit_data *a
++__overloaded static int ksu_slow_avc_audit_handler_2(SLOW_AVC_AUDIT_TYPE_2)
++{
++	ksu_slow_avc_audit_inline(&tsid);
++
++	assume(!!&slow_avc_audit);
++	return ((typeof(ksu_slow_avc_audit_handler_2) *)(void *)slow_avc_audit)(state, ssid, tsid, tclass, requested, audited, denied, result, a);
++}
++
++#define SLOW_AVC_AUDIT_TYPE_3	struct selinux_state *state, u32 ssid, u32 tsid, u16 tclass, u32 requested, u32 audited, u32 denied, int result, struct common_audit_data *a, unsigned int flags
++__overloaded static int ksu_slow_avc_audit_handler_3(SLOW_AVC_AUDIT_TYPE_3)
++{
++	ksu_slow_avc_audit_inline(&tsid);
++
++	assume(!!&slow_avc_audit);
++	return ((typeof(ksu_slow_avc_audit_handler_3) *)(void *)slow_avc_audit)(state, ssid, tsid, tclass, requested, audited, denied, result, a, flags);
++}
++
++#define SLOW_AVC_AUDIT_TYPE_4	u32 ssid, u32 tsid, u16 tclass, u32 requested, u32 audited, u32 denied, int result, struct common_audit_data *a, unsigned int flags
++__overloaded static int ksu_slow_avc_audit_handler_4(SLOW_AVC_AUDIT_TYPE_4)
++{
++	ksu_slow_avc_audit_inline(&tsid);
++
++	assume(!!&slow_avc_audit);
++	return ((typeof(ksu_slow_avc_audit_handler_4) *)(void *)slow_avc_audit)(ssid, tsid, tclass, requested, audited, denied, result, a, flags);
++}
++
++#define ksu_slow_avc_audit_overloaded _Generic(				\
++(slow_avc_audit),							\
++	int (*)(SLOW_AVC_AUDIT_TYPE_1): ksu_slow_avc_audit_handler_1, 	\
++	int (*)(SLOW_AVC_AUDIT_TYPE_2): ksu_slow_avc_audit_handler_2, 	\
++	int (*)(SLOW_AVC_AUDIT_TYPE_3): ksu_slow_avc_audit_handler_3, 	\
++	int (*)(SLOW_AVC_AUDIT_TYPE_4): ksu_slow_avc_audit_handler_4	\
++)
++
++static void ksu_init_slow_avc_audit_hook(void)
++{
++	int ret = ksu_selinux_get_sids();
++	if (ret) {
++		pr_info("selinux_hide: sid grab fail?\n");
++		goto bail;
++	}
++
++	uintptr_t target = kallsyms_lookup_retry("slow_avc_audit");
++	if (!target)
++		goto bail;
++
++	uintptr_t landing_pad = 0x0;
++	uintptr_t callsite = kallsyms_lookup_retry("avc_has_extended_perms");
++	if (!callsite)
++		goto skip1;
++	ret = arm64_bl_patch(callsite, ksu_get_ksym_size(callsite, 384 * sizeof(uint32_t)), target, (uintptr_t)&ksu_slow_avc_audit_overloaded);
++	if (ret == -ERANGE) {
++		landing_pad = create_landing_pad_kernel((uintptr_t)&ksu_slow_avc_audit_overloaded);
++		if (!!landing_pad)
++			ret = arm64_bl_patch(callsite, ksu_get_ksym_size(callsite, 384 * sizeof(uint32_t)), target, landing_pad);
++	}
++	pr_info("avc_spoof: hook on slow_avc_audit on avc_has_extended_perms ret: %d\n", ret);
++skip1:
++	callsite = kallsyms_lookup_retry("avc_has_perm_flags");
++	if (!callsite)
++		goto skip2;
++	ret = arm64_bl_patch(callsite, ksu_get_ksym_size(callsite, 384 * sizeof(uint32_t)), target, (uintptr_t)&ksu_slow_avc_audit_overloaded);
++	if (ret == -ERANGE) {
++		if (!landing_pad)
++			landing_pad = create_landing_pad_kernel((uintptr_t)&ksu_slow_avc_audit_overloaded);	
++		if (!!landing_pad)
++			ret = arm64_bl_patch(callsite, ksu_get_ksym_size(callsite, 384 * sizeof(uint32_t)), target, landing_pad);
++	}
++	pr_info("avc_spoof: hook on slow_avc_audit on avc_has_perm_flags ret: %d\n", ret);
++skip2:
++	callsite = kallsyms_lookup_retry("avc_has_perm");
++	if (!callsite)
++		goto bail;
++	ret = arm64_bl_patch(callsite, ksu_get_ksym_size(callsite, 384 * sizeof(uint32_t)), target, (uintptr_t)&ksu_slow_avc_audit_overloaded);
++	if (ret == -ERANGE) {
++		if (!landing_pad)
++			landing_pad = create_landing_pad_kernel((uintptr_t)&ksu_slow_avc_audit_overloaded);	
++		if (!!landing_pad)
++			ret = arm64_bl_patch(callsite, ksu_get_ksym_size(callsite, 384 * sizeof(uint32_t)), target, landing_pad);
++	}
++	pr_info("avc_spoof: hook on slow_avc_audit on avc_has_perm ret: %d\n", ret);
++
++bail:;
++	extern typeof(dotted_kallsyms_destroy_hash_array) dotted_kallsyms_destroy_hash_array;
++	dotted_kallsyms_destroy_hash_array();
++}
++
++#undef SLOW_AVC_AUDIT_TYPE_4
++#undef SLOW_AVC_AUDIT_TYPE_3
++#undef SLOW_AVC_AUDIT_TYPE_2
++#undef SLOW_AVC_AUDIT_TYPE_1
++
++#elif defined(CONFIG_KPROBES)
++static struct kprobe *slow_avc_audit_kp;
++static int slow_avc_audit_pre_handler(struct kprobe *p, struct pt_regs *regs)
++{
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 0) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || defined(KSU_COMPAT_HAS_SELINUX_STATE))
++	u32 *tsid = (u32 *)&PT_REGS_PARM3(regs);
++#else
++	u32 *tsid = (u32 *)&PT_REGS_PARM2(regs);
++#endif
++	ksu_slow_avc_audit_inline(tsid);
++
++	return 0;
++}
++
++static void ksu_init_slow_avc_audit_hook(void) 
++{
++	int ret = ksu_selinux_get_sids();
++	if (ret)
++		pr_info("selinux_hide: sid grab fail?\n");
++
++	slow_avc_audit_kp = init_kprobe("slow_avc_audit", slow_avc_audit_pre_handler);
++}
++
++#else /* ! CONFIG_KPROBES */
++
++void ksu_slow_avc_audit(u32 *tsid)
++{
++	ksu_slow_avc_audit_inline(tsid);
++}
++
++static void ksu_init_slow_avc_audit_hook(void) 
++{
++	int ret = ksu_selinux_get_sids();
++	if (!ret)
++		return;
++
++	// doesnt really matter if this fails
++	// replacing 0 with soemthing is not a problem
++	// this is for the manual hook part so yeah
++	pr_info("selinux_hide: sid grab fail?\n");
++}
++#endif
++
++#endif // __KSU_H_SLOW_AVC_AUDIT_HOOK
+diff --git a/kernel/downstream/syscall_table_common.h b/kernel/downstream/syscall_table_common.h
+new file mode 100644
+index 00000000..4b968f44
+--- /dev/null
++++ b/kernel/downstream/syscall_table_common.h
+@@ -0,0 +1,35 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_SYSCALL_TABLE_COMMON
++#define __KSU_H_SYSCALL_TABLE_COMMON
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0) && defined(CONFIG_ARM)
++// arch/arm/include/asm/syscall.h
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
++extern const unsigned long sys_call_table[];
++#else
++extern void *sys_call_table[];
++#endif
++#endif // < 4.19, ARM
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0) && defined(CONFIG_COMPAT)
++extern const void *compat_sys_call_table[];
++#endif
++
++static void *native_sct __read_mostly = (void *)sys_call_table;
++#if defined(CONFIG_COMPAT)
++static void *compat_sct __read_mostly = (void *)compat_sys_call_table;
++#endif
++
++#endif // __KSU_H_SYSCALL_TABLE_COMMON
+diff --git a/kernel/downstream/tiny_sulog.h b/kernel/downstream/tiny_sulog.h
+new file mode 100644
+index 00000000..b301fbd4
+--- /dev/null
++++ b/kernel/downstream/tiny_sulog.h
+@@ -0,0 +1,158 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_TINY_SULOG
++#define __KSU_H_TINY_SULOG
++
++// fast, lockless, partially inconsistent, half assed event-ringbuffer for su_compat
++// more than good enough w/ all teh atomic drama happening
++
++// 8 bytes
++struct sulog_entry {
++	uint32_t s_time;	// uptime in seconds
++	uint32_t data;		// uint8_t[0,1,2] = uid, basically uint24_t, uint8_t[3] = symbol
++} __attribute__((aligned(8)));
++
++#define SULOG_ENTRY_MAX 250
++#define SULOG_BUFSIZ SULOG_ENTRY_MAX * (sizeof (struct sulog_entry))
++
++static void *sulog_buf_ptr = nullptr;
++static uint32_t sulog_index_next = 0;
++
++static void tiny_sulog_init_heap()
++{
++	sulog_buf_ptr = kzalloc(SULOG_BUFSIZ, GFP_KERNEL);
++	if (!sulog_buf_ptr)
++		return;
++	
++	pr_info("tiny_sulog: allocated %lu bytes on 0x%lx \n", SULOG_BUFSIZ, (uintptr_t)sulog_buf_ptr);
++}
++
++/**
++ *
++ *  boottime_s_get, get kernel uptime in seconds
++ *
++ * - handles sub 4.10 compat
++ * - we do this forced pointer cast to cut down on compat, pre 4.10, ktime is a union
++ *
++ * - bs handling 64-bit division on 32-bit (do_div)
++ * - remainder = do_div(dividend, divisor); dividend will hold the quotient 
++ * - for 64-bit we can straight up just use divide
++ *
++ */
++static inline uint32_t boottime_s_get()
++{
++	ktime_t boottime_kt = ktime_get_boottime();
++
++#ifdef CONFIG_64BIT 
++	uint64_t boottime_s = *(uint64_t *)&boottime_kt / 1000000000;
++#else
++	uint64_t boottime_s = *(uint64_t *)&boottime_kt;
++	do_div(boottime_s, 1000000000);
++#endif
++
++	return (uint32_t)boottime_s;
++}
++
++/**
++ * NOTE: C11 atomics
++ *
++ *	__ATOMIC_RELAXED non-barrier'd atomic op
++ *	__ATOMIC_RELEASE writer publish, barrier'd
++ *	__ATOMIC_ACQUIRE reader consume, barrier'd
++ *	__ATOMIC_SEQ_CST sequential consitency, full barrier, atomic op
++ *
++ */
++static noinline void write_sulog(uint8_t sym)
++{
++	if (unlikely(!sulog_buf_ptr))
++		return;
++
++	struct sulog_entry entry;
++
++	// WARNING!!! this is LE only!
++	entry.s_time = boottime_s_get();
++	entry.data = (uint32_t)current_uid().val;
++	*((char *)&entry.data + 3) = sym;
++
++	// reserve slot
++	uint32_t slot = __atomic_load_n(&sulog_index_next, __ATOMIC_RELAXED);
++	uint32_t next_slot;
++
++retry:
++	if (slot + 1 >= SULOG_ENTRY_MAX)
++		next_slot = 0;
++	else
++		next_slot = slot + 1;
++
++	// if sulog_index_next == slot, set sulog_index_next = next_slot (increment) then ret true
++	// if it isn't, ret false and we just update &slot, it should be equal on the next loop
++	bool success = __atomic_compare_exchange(&sulog_index_next, &slot, &next_slot,
++							true,			// weak seems fine
++							__ATOMIC_RELEASE,	// writer publish + barrier
++							__ATOMIC_RELAXED);
++	if (!success)
++		goto retry; // another cpu overwrote slot, try grab another again
++
++	// 64-bit is also atomic on armv7 via ldrexd + strexd, https://godbolt.org/z/7Tqnrcceq
++	__atomic_store((uint64_t *)sulog_buf_ptr + slot, (uint64_t *)&entry, __ATOMIC_RELEASE);
++}
++
++struct sulog_entry_rcv_ptr {
++	uint64_t index_ptr; // send index here
++	uint64_t buf_ptr; // send buf here
++	uint64_t uptime_ptr; // uptime
++};
++
++static noinline int send_sulog_dump(void __user *uptr)
++{
++	if (unlikely(!sulog_buf_ptr))
++		return 1;
++
++	struct sulog_entry_rcv_ptr sbuf = {0};
++
++	if (copy_from_user(&sbuf, uptr, sizeof(sbuf) ))
++		return 1;
++
++	if (!sbuf.index_ptr || !sbuf.buf_ptr || !sbuf.uptime_ptr )
++		return 1;
++
++	// index can be a bit late but this doesnt matter in the grand scheme of things.
++	// we'll take the discrepancy, its not as important anyway.
++	void *memory __offstack_flags(SULOG_BUFSIZ, GFP_KERNEL);
++	if (!memory)
++		return -ENOMEM;
++
++	uint32_t uptime = boottime_s_get();
++	uint32_t current_idx = __atomic_load_n(&sulog_index_next, __ATOMIC_ACQUIRE); // reader consume + barrier
++
++	uint64_t *dst_buf = (uint64_t *)memory;
++	uint64_t *src_buf = (uint64_t *)sulog_buf_ptr;
++
++	size_t i;
++	for (i = 0; i < SULOG_ENTRY_MAX; i++)
++		__atomic_load(&src_buf[i], &dst_buf[i], __ATOMIC_RELAXED);
++
++	if (copy_to_user((void __user *)(uintptr_t)sbuf.uptime_ptr, &uptime, sizeof(uptime) ))
++		return 1;
++
++	if (copy_to_user((void __user *)(uintptr_t)sbuf.index_ptr, &current_idx, sizeof(current_idx) ))
++		return 1;
++
++	if (copy_to_user((void __user *)(uintptr_t)sbuf.buf_ptr, memory, SULOG_BUFSIZ ))
++		return 1;
++
++	return 0;
++}
++
++#endif // __KSU_H_TINY_SULOG
+diff --git a/kernel/downstream/toolkit.h b/kernel/downstream/toolkit.h
+new file mode 100644
+index 00000000..06364371
+--- /dev/null
++++ b/kernel/downstream/toolkit.h
+@@ -0,0 +1,161 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++#pragma once
++#ifndef __KSU_H_TOOLKIT
++#define __KSU_H_TOOLKIT
++
++// extensions
++#define CHANGE_MANAGER_UID 	10006
++#define KSU_UMOUNT_GETSIZE 	107	// get list size // shit is u8 we cant fit 10k+ on it
++#define KSU_UMOUNT_GETLIST 	108	// get list
++#define GET_SULOG_DUMP		10009	// get sulog dump, max, last 100 escalations, deprecated
++#define GET_SULOG_DUMP_V2	10010	// get sulog dump, timestamped, last 250 escalations
++#define CHANGE_KSUVER		10011	// change ksu version
++#define CHANGE_SPOOF_UNAME	10012	// spoof uname
++#define CHANGE_KSUFLAGS		10013	// change ksuflags, do the bit calc on your own, 0 + 1 + 2 + 4 + 8 blah
++
++static uint32_t ksuver_override = 0;
++static uint32_t ksuflags_override = 0;
++
++static inline int toolkit_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg)
++{
++	// only root is allowed for these commands
++	if (!!current_uid().val)
++		return 0;
++	
++	// extensions
++	uint64_t reply = (uint64_t)*(void **)arg;
++
++	if (magic2 == CHANGE_MANAGER_UID)
++		goto change_manager_uid;
++
++	// deprecated
++	if (magic2 == GET_SULOG_DUMP)
++		return 0;
++
++	if (magic2 == GET_SULOG_DUMP_V2)
++		goto get_sulog_dump_v2;
++
++	if (magic2 == CHANGE_KSUVER)
++		goto change_ksuver;
++
++	if (magic2 == CHANGE_SPOOF_UNAME)
++		goto change_spoof_uname;
++
++	if (magic2 == CHANGE_KSUFLAGS)
++		goto change_ksuflags;
++	
++	return 0;
++
++change_manager_uid:
++	pr_info("toolkit: ksu_set_manager_appid to: %d\n", cmd);
++	ksu_set_manager_appid(cmd);
++
++	if (cmd != ksu_get_manager_appid())
++		return 0;
++	
++	return !!copy_to_user((void __user *)*arg, &reply, sizeof(reply));
++
++get_sulog_dump_v2:
++	if (!!send_sulog_dump(*arg))
++		return 0;
++
++	return !!copy_to_user((void __user *)*arg, &reply, sizeof(reply));
++
++change_ksuver:
++	pr_info("toolkit: ksu_change_ksuver to: %d\n", cmd);
++	ksuver_override = cmd;
++
++	return !!copy_to_user((void __user *)*arg, &reply, sizeof(reply));
++
++// WARNING!!! triple ptr zone! ***
++// https://wiki.c2.com/?ThreeStarProgrammer
++// https://github.com/backslashxx/ksu_toolkit/pull/1
++change_spoof_uname:
++{ // scope ++
++	char release_buf[65];
++	char version_buf[65];
++	static char original_release_buf[65] = {0};
++	static char original_version_buf[65] = {0};
++
++	// basically void * void __user * void __user *arg
++	void ***ppptr = (void ***)(uintptr_t)arg;
++
++	// user pointer storage
++	// init this as zero so this works on 32-on-64 compat (LE)
++	uint64_t u_pptr = 0;
++	uint64_t u_ptr = 0;
++
++	pr_info("toolkit: ppptr: 0x%lx \n", (uintptr_t)ppptr);
++
++	// arg here is ***, dereference to pull out **
++	if (copy_from_user(&u_pptr, (void __user *)*ppptr, sizeof(u_pptr)))
++		return 0;
++
++	pr_info("toolkit: u_pptr: 0x%lx \n", (uintptr_t)u_pptr);
++
++	// now we got the __user **
++	// we cannot dereference this as this is __user
++	// we just do another copy_from_user to get it
++	if (copy_from_user(&u_ptr, (void __user *)u_pptr, sizeof(u_ptr)))
++		return 0;
++
++	pr_info("toolkit: u_ptr: 0x%lx \n", (uintptr_t)u_ptr);
++
++	// for release
++	if (strncpy_from_user(release_buf, (char __user *)u_ptr, sizeof(release_buf)) < 0)
++		return 0;
++
++	// for version
++	if (strncpy_from_user(version_buf, (char __user *)(u_ptr + strlen(release_buf) + 1), sizeof(version_buf)) < 0)
++		return 0;
++
++	release_buf[sizeof(release_buf) - 1] = '\0'; 
++	version_buf[sizeof(version_buf) - 1] = '\0'; 
++
++	if (original_release_buf[0] == '\0') {
++		struct new_utsname *u_curr = utsname();
++		// we save current version as the original before modifying
++		strscpy(original_release_buf, u_curr->release, sizeof(original_release_buf));
++		strscpy(original_version_buf, u_curr->version, sizeof(original_version_buf));
++		pr_info("toolkit: original uname saved: %s %s\n", original_release_buf, original_version_buf);
++	}
++
++	constexpr char d[] = "default";
++	if (!memcmp_inline(release_buf, d, sizeof(d)))
++		memcpy(release_buf, original_release_buf, sizeof(release_buf));
++	if (!memcmp_inline(version_buf, d, sizeof(d)))
++		memcpy(version_buf, original_version_buf, sizeof(version_buf));
++
++	pr_info("toolkit: spoofing kernel to: %s - %s\n", release_buf, version_buf);
++
++	struct new_utsname *u = utsname();
++
++	down_write(&uts_sem);
++	strscpy(u->release, release_buf, sizeof(u->release));
++	strscpy(u->version, version_buf, sizeof(u->version));
++	up_write(&uts_sem);
++
++	// we write our confirmation on **
++	return !!copy_to_user((void __user *)*arg, &reply, sizeof(reply));
++	
++} // scope --
++
++change_ksuflags:
++	pr_info("toolkit: ksu_change_ksuflags to: %d\n", cmd);
++	ksuflags_override = cmd;
++
++	return !!copy_to_user((void __user *)*arg, &reply, sizeof(reply));
++}
++
++#endif // __KSU_H_TOOLKIT
+diff --git a/kernel/downstream/vmap_patch.h b/kernel/downstream/vmap_patch.h
+new file mode 100644
+index 00000000..1676112f
+--- /dev/null
++++ b/kernel/downstream/vmap_patch.h
+@@ -0,0 +1,187 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026 \xx
++ *
++ * This file is a downstream extension and NOT affiliated, endorsed by,
++ * or maintained by the official KernelSU developers.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ */
++
++#ifndef __KSU_H_VMAP_PATCH
++#define __KSU_H_VMAP_PATCH
++
++// vmap_patch.h safely write to read-only fn_ptr slots or syscall table.
++
++/**
++ * normally we want this on stop_machine, but we don't need HARD synchronization
++ * we just let !cpuX use what they have in cache while we patch what is on cpuX.
++ * not a big deal. this is safe since, pointer-write is atomic and the old ptr
++ * still exists while in-patching.
++ *
++ * then we can just kick all the cpus, so they see the change and refetch.
++ */
++static void patch_ptr_slot_kick_cpu(void **target_slot, void *new_ptr)
++{
++	assume_dereferenceable((void *)target_slot, sizeof(uintptr_t));
++	*(volatile void **)target_slot = new_ptr;
++	kick_all_cpus_sync();
++}
++
++nodiscard static int patch_ptr_slot_kick_cpu_safe(void **target_slot, void *new_ptr)
++{
++	assume_dereferenceable((void *)target_slot, sizeof(uintptr_t));
++	int ret = copy_to_kernel_nofault((void *)target_slot, &new_ptr, sizeof(uintptr_t));
++	if (!ret && *(volatile uintptr_t *)target_slot == (uintptr_t)new_ptr) {
++		kick_all_cpus_sync();
++		return ret;
++	}
++
++	return -EFAULT;
++}
++
++nodiscard static int patch_ro_slot_vmap(uintptr_t slot_ptr, uintptr_t new_ptr)
++{
++	if (!slot_ptr || !new_ptr)
++		return -EINVAL;
++
++	/**
++	 * basically the trick is
++	 * addr, say 0xffff1234, this is READ-ONLY
++	 * align it, 0xffff0000
++	 * ptrdiff 0xffff1234 - 0xffff0000, 0x00001234
++	 * vmap 0xffff0000, say we get 0xcccc0000 , now WRITABLE
++	 * write on 0xcccc0000 + 0x00001234
++	 */
++	uintptr_t addr = slot_ptr;
++	uintptr_t base = addr & PAGE_MASK;
++	uintptr_t offset = addr & ~PAGE_MASK;
++
++	struct page *page = phys_to_page(__pa(base));
++	if (!page)
++		return -EFAULT;
++
++	void *writable_addr = vmap(&page, 1, VM_MAP, PAGE_KERNEL);
++	if (!writable_addr)
++		return -ENOMEM;
++
++	void **target_slot = (void **)((uintptr_t)writable_addr + offset);
++
++	int ret = patch_ptr_slot_kick_cpu_safe(target_slot, (void *)new_ptr);
++
++	vunmap(writable_addr);
++	smp_mb();
++
++	return ret;
++}
++
++nodiscard static noinline int patch_ro_slot(uintptr_t slot_ptr, uintptr_t new_ptr)
++{
++	if (!slot_ptr || !new_ptr)
++		return -EINVAL;
++
++	if (!patch_ptr_slot_kick_cpu_safe((void **)slot_ptr, (void *)new_ptr))
++		return 0;
++
++	return patch_ro_slot_vmap(slot_ptr, new_ptr);
++}
++
++#if 0 // check that the pointer points inside kernel text
++#define __is_kernel_text(addr) ({					\
++	extern char _stext[], _etext[];					\
++	!!(addr >= (uintptr_t)_stext && addr < (uintptr_t)_etext);	\
++})
++#define is_kernel_text(addr)	__is_kernel_text((uintptr_t)addr)
++#endif
++
++// WARNING!!! void * abuse ahead! (type-punning, pointer-hiding!)
++// for 4.19+ storage_ptr is actually syscall_fn_t *, which is just long * so we can consider this void **
++// for 4.19- storage_ptr is actually void **
++// target_table is void *target_table[];
++static noinline void replace_syscall(void *storage_ptr, unsigned long syscall_nr, void *hook_fnptr, void *target_table)
++{
++	uintptr_t *table = (uintptr_t *)target_table;
++	uintptr_t *slot = &table[syscall_nr];
++	uintptr_t sc_addr = table[syscall_nr];
++
++	if (!slot || !sc_addr)
++		return;
++
++	extern char _stext[], _etext[];
++	if (!(sc_addr >= (uintptr_t)_stext && sc_addr < (uintptr_t)_etext)) {
++		pr_info("%s: syscall #%d at 0x%lx NOT pointing to kernel text!\n", __func__, syscall_nr, sc_addr);
++		return;
++	}
++
++	// save address to storage for restoration
++	*(volatile void **)storage_ptr = (void *)sc_addr;
++
++	pr_info("%s: hooking syscall: #%d slot: 0x%lx addr: 0x%lx\n", __func__, syscall_nr, (uintptr_t)slot, (uintptr_t)sc_addr);
++
++	int ret = patch_ro_slot((uintptr_t)slot, (uintptr_t)hook_fnptr);
++	if (ret)
++		pr_info("patch_ro_slot: *(uintptr_t *)0x%lx = 0x%lx; ret: %d\n", slot, hook_fnptr, ret);
++
++	return;
++}
++
++static noinline void restore_syscall(void *storage_ptr, unsigned long syscall_nr, void *hook_fnptr, void *target_table)
++{
++	uintptr_t *table = (uintptr_t *)target_table;
++	uintptr_t *slot = &table[syscall_nr];
++	uintptr_t sc_addr = table[syscall_nr];
++
++	if (!slot || !sc_addr)
++		return;
++
++	/*
++	 * we do this to make sure that storage_ptr is filled.
++	 * we risk a dead syscall !!!
++	 * if read_and_replace failed or we restore again, it wont be pointing to anything
++	 * it just copies wordsize of whatever is in *storage_ptr, it should fill up a wordzie atleast
++	 * yeah it really just dummy copies machine instructions at this point.
++	 *
++	 * normally we use probe_kernel_address / get_kernel_nofault here but the API is 
++	 * so inconsistent across kernel versions, and since its just a dummied wrapper 
++	 * for copy_from_kernel_nofault we can do it ourselves
++	 *
++	 */
++	long dummy = 0;
++	if (copy_from_kernel_nofault((void *)&dummy, *(void **)storage_ptr, sizeof(long)))
++		return;
++
++	pr_info("%s: restore syscall: #%d slot: 0x%lx addr: 0x%lx\n", __func__, syscall_nr, (uintptr_t)slot, (uintptr_t)sc_addr);
++
++	if (*slot != (uintptr_t)hook_fnptr) {
++		pr_info("%s: syscall is not ours!\n", __func__);
++		return;
++	}
++
++	pr_info("%s: syscall is ours! sc_addr: 0x%lx hook: 0x%lx\n", __func__, (uintptr_t)sc_addr, (uintptr_t)hook_fnptr);
++
++	int ret = patch_ro_slot((uintptr_t)slot, (uintptr_t)*(void **)storage_ptr);
++	if (ret)
++		pr_info("patch_ro_slot: *(uintptr_t *)0x%lx = 0x%lx; ret: %d\n", slot, (uintptr_t)*(void **)storage_ptr, ret);
++
++	// reset storage variable
++	*(volatile void **)storage_ptr = nullptr;
++	return;
++}
++
++// just so we can print out syscall_nr
++#define do_replace_syscall replace_syscall
++#define replace_syscall(old_p, syscall_nr, new_p, table) ({		\
++	pr_info("replace_syscall: hooking %s\n", #syscall_nr);		\
++	do_replace_syscall(old_p, syscall_nr, new_p, table);		\
++})
++
++#define do_restore_syscall restore_syscall
++#define restore_syscall(old_p, syscall_nr, new_p, table) ({		\
++	pr_info("restore_syscall: unhooking %s\n", #syscall_nr);	\
++	do_restore_syscall(old_p, syscall_nr, new_p, table);		\
++})
++
++#endif // __KSU_H_VMAP_PATCH
+diff --git a/kernel/kernel_compat.h b/kernel/kernel_compat.h
+index 15560a33..da5ca3a9 100644
+--- a/kernel/kernel_compat.h
++++ b/kernel/kernel_compat.h
+@@ -426,6 +426,18 @@ static char *ksu_strchrnul(const char *s, int c)
+ #define d_inode(dentry)		((dentry)->d_inode)
+ #endif
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION (5, 16, 0)
++static inline struct file *anon_inode_getfile_unqual(const char *name,
++				const struct file_operations *fops,
++				void *priv, int flags)
++{
++	// mostly an issue on 3.x/4.x with strict compilers, but this is actually < 5.16 
++	// using a function rather than chained macros keeps type-checking
++	return anon_inode_getfile(name, (void *)fops, priv, flags);
++}
++#define anon_inode_getfile(name, fops, priv, flags) anon_inode_getfile_unqual(name, fops, priv, flags)
++#endif
++
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) && !defined(replace_fops)
+ #define replace_fops(f, fops)			\
+ do {						\
+diff --git a/kernel/ksu.c b/kernel/ksu.c
+index 464c9a3b..87039902 100644
+--- a/kernel/ksu.c
++++ b/kernel/ksu.c
+@@ -52,6 +52,32 @@
+ #include "selinux/selinux.h"
+ #include "selinux/sepolicy.h"
+ 
++// syscall table defs and patcher
++#include "downstream/syscall_table_common.h"
++#include "downstream/vmap_patch.h"
++
++#ifdef CONFIG_KALLSYMS
++#include "external/chibihash64.h"
++#include "downstream/kallsyms_common.h"
++#else
++#define find_kernel_symbol_exact(...) ({ 0x0; })
++#define ksu_lookup_kernel_symbols(...) ({ -ENOSYS; })
++#endif
++
++#ifdef CONFIG_ARM64
++#include "downstream/arm64_branch_patch.h"
++#include "downstream/arm64_syscall_table_mirror.h"
++#include "downstream/arm64_tiny_trampoline.h"
++#endif
++
++#ifdef CONFIG_KPROBES
++#include "downstream/kprobes_common.h"
++#endif
++
++#include "downstream/slow_avc_audit_defs.h"
++#include "downstream/tiny_sulog.h"
++#include "downstream/toolkit.h"
++
+ // unity build
+ #include "policy/allowlist.c"
+ #include "policy/app_profile.c"
+-- 
+2.43.0
+

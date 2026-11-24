@@ -1,0 +1,652 @@
+From 51105e4fca44522f6ad9785630be51a86414377d Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Fri, 24 Jul 2026 23:04:26 +0800
+Subject: [PATCH] kernel: external: import chibihash, hashtable and overflow helpers
+
+---
+ kernel/external/chibihash64.h     |  80 ++++++++
+ kernel/external/linux_hashtable.h | 245 +++++++++++++++++++++++++
+ kernel/external/linux_overflow.h  | 292 ++++++++++++++++++++++++++++++
+ 3 files changed, 617 insertions(+)
+ create mode 100644 kernel/external/chibihash64.h
+ create mode 100644 kernel/external/linux_hashtable.h
+ create mode 100644 kernel/external/linux_overflow.h
+
+diff --git a/kernel/external/chibihash64.h b/kernel/external/chibihash64.h
+new file mode 100644
+index 00000000..f6b72104
+--- /dev/null
++++ b/kernel/external/chibihash64.h
+@@ -0,0 +1,80 @@
++#ifndef CHIBIHASH64__HGUARD
++#define CHIBIHASH64__HGUARD
++// small, fast 64 bit hash function (version 2).
++//
++// https://github.com/N-R-K/ChibiHash
++//
++// This is free and unencumbered software released into the public domain.
++// For more information, please refer to <https://unlicense.org/>
++
++static inline uint64_t chibihash64__load32le(const unsigned char *p)
++{
++	return (uint64_t)p[0] <<  0 | (uint64_t)p[1] <<  8 |
++	       (uint64_t)p[2] << 16 | (uint64_t)p[3] << 24;
++}
++static inline uint64_t chibihash64__load64le(const unsigned char *p)
++{
++	return chibihash64__load32le(p) | (chibihash64__load32le(p+4) << 32);
++}
++static inline uint64_t chibihash64__rotl(uint64_t x, int n)
++{
++	return (x << n) | (x >> (-n & 63));
++}
++
++static inline uint64_t
++chibihash64(const void *keyIn, ptrdiff_t len, uint64_t seed)
++{
++	const unsigned char *p = (const unsigned char *)keyIn;
++	ptrdiff_t l = len;
++
++	const uint64_t K = 0x2B7E151628AED2A7ULL; // digits of e
++	uint64_t seed2 = chibihash64__rotl(seed-K, 15) + chibihash64__rotl(seed-K, 47);
++	uint64_t h[4] = { seed, seed+K, seed2, seed2+(K*K^K) };
++
++	// depending on your system unrolling might (or might not) make things
++	// a tad bit faster on large strings. on my system, it actually makes
++	// things slower.
++	// generally speaking, the cost of bigger code size is usually not
++	// worth the trade-off since larger code-size will hinder inlinability
++	// but depending on your needs, you may want to uncomment the pragma
++	// below to unroll the loop.
++	//#pragma GCC unroll 2
++	for (; l >= 32; l -= 32) {
++		for (int i = 0; i < 4; ++i, p += 8) {
++			uint64_t stripe = chibihash64__load64le(p);
++			h[i] = (stripe + h[i]) * K;
++			h[(i+1)&3] += chibihash64__rotl(stripe, 27);
++		}
++	}
++
++	for (; l >= 8; l -= 8, p += 8) {
++		h[0] ^= chibihash64__load32le(p+0); h[0] *= K;
++		h[1] ^= chibihash64__load32le(p+4); h[1] *= K;
++	}
++
++	if (l >= 4) {
++		h[2] ^= chibihash64__load32le(p);
++		h[3] ^= chibihash64__load32le(p + l - 4);
++	} else if (l > 0) {
++		h[2] ^= p[0];
++		h[3] ^= p[l/2] | ((uint64_t)p[l-1] << 8);
++	}
++
++	h[0] += chibihash64__rotl(h[2] * K, 31) ^ (h[2] >> 31);
++	h[1] += chibihash64__rotl(h[3] * K, 31) ^ (h[3] >> 31);
++	h[0] *= K; h[0] ^= h[0] >> 31;
++	h[1] += h[0];
++
++	uint64_t x = (uint64_t)len * K;
++	x ^= chibihash64__rotl(x, 29);
++	x += seed;
++	x ^= h[1];
++
++	x ^= chibihash64__rotl(x, 15) ^ chibihash64__rotl(x, 42);
++	x *= K;
++	x ^= chibihash64__rotl(x, 13) ^ chibihash64__rotl(x, 31);
++
++	return x;
++}
++
++#endif // CHIBIHASH64__HGUARD
+diff --git a/kernel/external/linux_hashtable.h b/kernel/external/linux_hashtable.h
+new file mode 100644
+index 00000000..abd4882c
+--- /dev/null
++++ b/kernel/external/linux_hashtable.h
+@@ -0,0 +1,245 @@
++/*
++ * Statically sized hash table implementation
++ * (C) 2012  Sasha Levin <levinsasha928@gmail.com>
++ */
++
++// ref: https://github.com/torvalds/linux/commit/b67bfe0d42cac56c512dd5da4b1b347a23f4b70a
++
++#ifndef _LINUX_HASHTABLE_H
++#define _LINUX_HASHTABLE_H
++
++#include <linux/list.h>
++#include <linux/types.h>
++#include <linux/kernel.h>
++#include <linux/hash.h>
++#include <linux/rculist.h>
++
++#define DEFINE_HASHTABLE(name, bits)						\
++	struct hlist_head name[1 << (bits)] =					\
++			{ [0 ... ((1 << (bits)) - 1)] = HLIST_HEAD_INIT }
++
++#define DECLARE_HASHTABLE(name, bits)                                   	\
++	struct hlist_head name[1 << (bits)]
++
++#define HASH_SIZE(name) (ARRAY_SIZE(name))
++#define HASH_BITS(name) ilog2(HASH_SIZE(name))
++
++/* Use hash_32 when possible to allow for fast 32bit hashing in 64bit kernels. */
++#define hash_min(val, bits)							\
++	(sizeof(val) <= 4 ? hash_32(val, bits) : hash_long(val, bits))
++
++static inline void __hash_init(struct hlist_head *ht, unsigned int sz)
++{
++	unsigned int i;
++
++	for (i = 0; i < sz; i++)
++		INIT_HLIST_HEAD(&ht[i]);
++}
++
++/**
++ * hash_init - initialize a hash table
++ * @hashtable: hashtable to be initialized
++ *
++ * Calculates the size of the hashtable from the given parameter, otherwise
++ * same as hash_init_size.
++ *
++ * This has to be a macro since HASH_BITS() will not work on pointers since
++ * it calculates the size during preprocessing.
++ */
++#define hash_init(hashtable) __hash_init(hashtable, HASH_SIZE(hashtable))
++
++/**
++ * hash_add - add an object to a hashtable
++ * @hashtable: hashtable to add to
++ * @node: the &struct hlist_node of the object to be added
++ * @key: the key of the object to be added
++ */
++#define hash_add(hashtable, node, key)						\
++	hlist_add_head(node, &hashtable[hash_min(key, HASH_BITS(hashtable))])
++
++/**
++ * hash_add_rcu - add an object to a rcu enabled hashtable
++ * @hashtable: hashtable to add to
++ * @node: the &struct hlist_node of the object to be added
++ * @key: the key of the object to be added
++ */
++#define hash_add_rcu(hashtable, node, key)					\
++	hlist_add_head_rcu(node, &hashtable[hash_min(key, HASH_BITS(hashtable))])
++
++/**
++ * hash_hashed - check whether an object is in any hashtable
++ * @node: the &struct hlist_node of the object to be checked
++ */
++static inline bool hash_hashed(struct hlist_node *node)
++{
++	return !hlist_unhashed(node);
++}
++
++static inline bool __hash_empty(struct hlist_head *ht, unsigned int sz)
++{
++	unsigned int i;
++
++	for (i = 0; i < sz; i++)
++		if (!hlist_empty(&ht[i]))
++			return false;
++
++	return true;
++}
++
++/**
++ * hash_empty - check whether a hashtable is empty
++ * @hashtable: hashtable to check
++ *
++ * This has to be a macro since HASH_BITS() will not work on pointers since
++ * it calculates the size during preprocessing.
++ */
++#define hash_empty(hashtable) __hash_empty(hashtable, HASH_SIZE(hashtable))
++
++/**
++ * hash_del - remove an object from a hashtable
++ * @node: &struct hlist_node of the object to remove
++ */
++static inline void hash_del(struct hlist_node *node)
++{
++	hlist_del_init(node);
++}
++
++/**
++ * hash_del_rcu - remove an object from a rcu enabled hashtable
++ * @node: &struct hlist_node of the object to remove
++ */
++static inline void hash_del_rcu(struct hlist_node *node)
++{
++	hlist_del_init_rcu(node);
++}
++
++#undef hlist_entry_safe
++#undef hlist_for_each_entry_rcu
++#undef hlist_for_each_entry
++#undef hlist_for_each_entry_safe
++
++#define hlist_entry_safe(ptr, type, member) \
++	(ptr) ? hlist_entry(ptr, type, member) : NULL
++
++/**
++ * hlist_for_each_entry_rcu - iterate over rcu list of given type
++ * @pos:	the type * to use as a loop cursor.
++ * @head:	the head for your list.
++ * @member:	the name of the hlist_node within the struct.
++ *
++ * This list-traversal primitive may safely run concurrently with
++ * the _rcu list-mutation primitives such as hlist_add_head_rcu()
++ * as long as the traversal is guarded by rcu_read_lock().
++ */
++#define hlist_for_each_entry_rcu(pos, head, member)			\
++	for (pos = hlist_entry_safe (rcu_dereference_raw(hlist_first_rcu(head)),\
++			typeof(*(pos)), member);			\
++		pos;							\
++		pos = hlist_entry_safe(rcu_dereference_raw(hlist_next_rcu(\
++			&(pos)->member)), typeof(*(pos)), member))
++/**
++ * hlist_for_each_entry	- iterate over list of given type
++ * @pos:	the type * to use as a loop cursor.
++ * @head:	the head for your list.
++ * @member:	the name of the hlist_node within the struct.
++ */
++#define hlist_for_each_entry(pos, head, member)				\
++	for (pos = hlist_entry_safe((head)->first, typeof(*(pos)), member);\
++	     pos;							\
++	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
++
++/**
++ * hlist_for_each_entry_safe - iterate over list of given type safe against removal of list entry
++ * @pos:	the type * to use as a loop cursor.
++ * @n:		another &struct hlist_node to use as temporary storage
++ * @head:	the head for your list.
++ * @member:	the name of the hlist_node within the struct.
++ */
++#define hlist_for_each_entry_safe(pos, n, head, member) 		\
++	for (pos = hlist_entry_safe((head)->first, typeof(*pos), member);\
++	     pos && ({ n = pos->member.next; 1; });			\
++	     pos = hlist_entry_safe(n, typeof(*pos), member))
++
++#undef hash_for_each
++#undef hash_for_each_rcu
++#undef hash_for_each_safe
++#undef hash_for_each_possible
++#undef hash_for_each_possible_rcu
++
++/**
++ * hash_for_each - iterate over a hashtable
++ * @name: hashtable to iterate
++ * @bkt: integer to use as bucket loop cursor
++ * @obj: the type * to use as a loop cursor for each entry
++ * @member: the name of the hlist_node within the struct
++ */
++#define hash_for_each(name, bkt, obj, member)				\
++	for ((bkt) = 0, obj = NULL; obj == NULL && (bkt) < HASH_SIZE(name);\
++			(bkt)++)\
++		hlist_for_each_entry(obj, &name[bkt], member)
++
++/**
++ * hash_for_each_rcu - iterate over a rcu enabled hashtable
++ * @name: hashtable to iterate
++ * @bkt: integer to use as bucket loop cursor
++ * @obj: the type * to use as a loop cursor for each entry
++ * @member: the name of the hlist_node within the struct
++ */
++#define hash_for_each_rcu(name, bkt, obj, member)			\
++	for ((bkt) = 0, obj = NULL; obj == NULL && (bkt) < HASH_SIZE(name);\
++			(bkt)++)\
++		hlist_for_each_entry_rcu(obj, &name[bkt], member)
++
++/**
++ * hash_for_each_safe - iterate over a hashtable safe against removal of
++ * hash entry
++ * @name: hashtable to iterate
++ * @bkt: integer to use as bucket loop cursor
++ * @tmp: a &struct used for temporary storage
++ * @obj: the type * to use as a loop cursor for each entry
++ * @member: the name of the hlist_node within the struct
++ */
++#define hash_for_each_safe(name, bkt, tmp, obj, member)			\
++	for ((bkt) = 0, obj = NULL; obj == NULL && (bkt) < HASH_SIZE(name);\
++			(bkt)++)\
++		hlist_for_each_entry_safe(obj, tmp, &name[bkt], member)
++
++/**
++ * hash_for_each_possible - iterate over all possible objects hashing to the
++ * same bucket
++ * @name: hashtable to iterate
++ * @obj: the type * to use as a loop cursor for each entry
++ * @member: the name of the hlist_node within the struct
++ * @key: the key of the objects to iterate over
++ */
++#define hash_for_each_possible(name, obj, member, key)			\
++	hlist_for_each_entry(obj, &name[hash_min(key, HASH_BITS(name))], member)
++
++/**
++ * hash_for_each_possible_rcu - iterate over all possible objects hashing to the
++ * same bucket in an rcu enabled hashtable
++ * in a rcu enabled hashtable
++ * @name: hashtable to iterate
++ * @obj: the type * to use as a loop cursor for each entry
++ * @member: the name of the hlist_node within the struct
++ * @key: the key of the objects to iterate over
++ */
++#define hash_for_each_possible_rcu(name, obj, member, key)		\
++	hlist_for_each_entry_rcu(obj, &name[hash_min(key, HASH_BITS(name))],\
++		member)
++
++/**
++ * hash_for_each_possible_safe - iterate over all possible objects hashing to the
++ * same bucket safe against removals
++ * @name: hashtable to iterate
++ * @obj: the type * to use as a loop cursor for each entry
++ * @tmp: a &struct used for temporary storage
++ * @member: the name of the hlist_node within the struct
++ * @key: the key of the objects to iterate over
++ */
++#define hash_for_each_possible_safe(name, obj, tmp, member, key)	\
++	hlist_for_each_entry_safe(obj, tmp,\
++		&name[hash_min(key, HASH_BITS(name))], member)
++
++
++#endif
+diff --git a/kernel/external/linux_overflow.h b/kernel/external/linux_overflow.h
+new file mode 100644
+index 00000000..8b925273
+--- /dev/null
++++ b/kernel/external/linux_overflow.h
+@@ -0,0 +1,292 @@
++/* SPDX-License-Identifier: GPL-2.0 OR MIT */
++
++// ref: https://github.com/torvalds/linux/commit/f0907827a8a9152aedac2833ed1b674a7b2a44f2
++// ref: https://github.com/torvalds/linux/commit/610b15c50e86eb1e4b77274fabcaea29ac72d6a8
++
++#ifndef __LINUX_OVERFLOW_H
++#define __LINUX_OVERFLOW_H
++
++/*
++ * In the fallback code below, we need to compute the minimum and
++ * maximum values representable in a given type. These macros may also
++ * be useful elsewhere, so we provide them outside the
++ * COMPILER_HAS_GENERIC_BUILTIN_OVERFLOW block.
++ *
++ * It would seem more obvious to do something like
++ *
++ * #define type_min(T) (T)(is_signed_type(T) ? (T)1 << (8*sizeof(T)-1) : 0)
++ * #define type_max(T) (T)(is_signed_type(T) ? ((T)1 << (8*sizeof(T)-1)) - 1 : ~(T)0)
++ *
++ * Unfortunately, the middle expressions, strictly speaking, have
++ * undefined behaviour, and at least some versions of gcc warn about
++ * the type_max expression (but not if -fsanitize=undefined is in
++ * effect; in that case, the warning is deferred to runtime...).
++ *
++ * The slightly excessive casting in type_min is to make sure the
++ * macros also produce sensible values for the exotic type _Bool. [The
++ * overflow checkers only almost work for _Bool, but that's
++ * a-feature-not-a-bug, since people shouldn't be doing arithmetic on
++ * _Bools. Besides, the gcc builtins don't allow _Bool* as third
++ * argument.]
++ *
++ * Idea stolen from
++ * https://mail-index.netbsd.org/tech-misc/2007/02/05/0000.html -
++ * credit to Christian Biere.
++ */
++#define is_signed_type(type)       (((type)(-1)) < (type)1)
++#define __type_half_max(type) ((type)1 << (8*sizeof(type) - 1 - is_signed_type(type)))
++#define type_max(T) ((T)((__type_half_max(T) - 1) + __type_half_max(T)))
++#define type_min(T) ((T)((T)-type_max(T)-(T)1))
++
++#if __has_builtin(__builtin_mul_overflow) && \
++    __has_builtin(__builtin_add_overflow) && \
++    __has_builtin(__builtin_sub_overflow)
++
++/*
++ * For simplicity and code hygiene, the fallback code below insists on
++ * a, b and *d having the same type (similar to the min() and max()
++ * macros), whereas gcc's type-generic overflow checkers accept
++ * different types. Hence we don't just make check_add_overflow an
++ * alias for __builtin_add_overflow, but add type checks similar to
++ * below.
++ */
++#define check_add_overflow(a, b, d) ({		\
++	typeof(a) __a = (a);			\
++	typeof(b) __b = (b);			\
++	typeof(d) __d = (d);			\
++	(void) (&__a == &__b);			\
++	(void) (&__a == __d);			\
++	__builtin_add_overflow(__a, __b, __d);	\
++})
++
++#define check_sub_overflow(a, b, d) ({		\
++	typeof(a) __a = (a);			\
++	typeof(b) __b = (b);			\
++	typeof(d) __d = (d);			\
++	(void) (&__a == &__b);			\
++	(void) (&__a == __d);			\
++	__builtin_sub_overflow(__a, __b, __d);	\
++})
++
++#define check_mul_overflow(a, b, d) ({		\
++	typeof(a) __a = (a);			\
++	typeof(b) __b = (b);			\
++	typeof(d) __d = (d);			\
++	(void) (&__a == &__b);			\
++	(void) (&__a == __d);			\
++	__builtin_mul_overflow(__a, __b, __d);	\
++})
++
++#else /* ! __has_builtin overflow */
++
++/* Checking for unsigned overflow is relatively easy without causing UB. */
++#define __unsigned_add_overflow(a, b, d) ({	\
++	typeof(a) __a = (a);			\
++	typeof(b) __b = (b);			\
++	typeof(d) __d = (d);			\
++	(void) (&__a == &__b);			\
++	(void) (&__a == __d);			\
++	*__d = __a + __b;			\
++	*__d < __a;				\
++})
++#define __unsigned_sub_overflow(a, b, d) ({	\
++	typeof(a) __a = (a);			\
++	typeof(b) __b = (b);			\
++	typeof(d) __d = (d);			\
++	(void) (&__a == &__b);			\
++	(void) (&__a == __d);			\
++	*__d = __a - __b;			\
++	__a < __b;				\
++})
++/*
++ * If one of a or b is a compile-time constant, this avoids a division.
++ */
++#define __unsigned_mul_overflow(a, b, d) ({		\
++	typeof(a) __a = (a);				\
++	typeof(b) __b = (b);				\
++	typeof(d) __d = (d);				\
++	(void) (&__a == &__b);				\
++	(void) (&__a == __d);				\
++	*__d = __a * __b;				\
++	__builtin_constant_p(__b) ?			\
++	  __b > 0 && __a > type_max(typeof(__a)) / __b : \
++	  __a > 0 && __b > type_max(typeof(__b)) / __a;	 \
++})
++
++/*
++ * For signed types, detecting overflow is much harder, especially if
++ * we want to avoid UB. But the interface of these macros is such that
++ * we must provide a result in *d, and in fact we must produce the
++ * result promised by gcc's builtins, which is simply the possibly
++ * wrapped-around value. Fortunately, we can just formally do the
++ * operations in the widest relevant unsigned type (u64) and then
++ * truncate the result - gcc is smart enough to generate the same code
++ * with and without the (u64) casts.
++ */
++
++/*
++ * Adding two signed integers can overflow only if they have the same
++ * sign, and overflow has happened iff the result has the opposite
++ * sign.
++ */
++#define __signed_add_overflow(a, b, d) ({	\
++	typeof(a) __a = (a);			\
++	typeof(b) __b = (b);			\
++	typeof(d) __d = (d);			\
++	(void) (&__a == &__b);			\
++	(void) (&__a == __d);			\
++	*__d = (u64)__a + (u64)__b;		\
++	(((~(__a ^ __b)) & (*__d ^ __a))	\
++		& type_min(typeof(__a))) != 0;	\
++})
++
++/*
++ * Subtraction is similar, except that overflow can now happen only
++ * when the signs are opposite. In this case, overflow has happened if
++ * the result has the opposite sign of a.
++ */
++#define __signed_sub_overflow(a, b, d) ({	\
++	typeof(a) __a = (a);			\
++	typeof(b) __b = (b);			\
++	typeof(d) __d = (d);			\
++	(void) (&__a == &__b);			\
++	(void) (&__a == __d);			\
++	*__d = (u64)__a - (u64)__b;		\
++	((((__a ^ __b)) & (*__d ^ __a))		\
++		& type_min(typeof(__a))) != 0;	\
++})
++
++/*
++ * Signed multiplication is rather hard. gcc always follows C99, so
++ * division is truncated towards 0. This means that we can write the
++ * overflow check like this:
++ *
++ * (a > 0 && (b > MAX/a || b < MIN/a)) ||
++ * (a < -1 && (b > MIN/a || b < MAX/a) ||
++ * (a == -1 && b == MIN)
++ *
++ * The redundant casts of -1 are to silence an annoying -Wtype-limits
++ * (included in -Wextra) warning: When the type is u8 or u16, the
++ * __b_c_e in check_mul_overflow obviously selects
++ * __unsigned_mul_overflow, but unfortunately gcc still parses this
++ * code and warns about the limited range of __b.
++ */
++
++#define __signed_mul_overflow(a, b, d) ({				\
++	typeof(a) __a = (a);						\
++	typeof(b) __b = (b);						\
++	typeof(d) __d = (d);						\
++	typeof(a) __tmax = type_max(typeof(a));				\
++	typeof(a) __tmin = type_min(typeof(a));				\
++	(void) (&__a == &__b);						\
++	(void) (&__a == __d);						\
++	*__d = (u64)__a * (u64)__b;					\
++	(__b > 0   && (__a > __tmax/__b || __a < __tmin/__b)) ||	\
++	(__b < (typeof(__b))-1  && (__a > __tmin/__b || __a < __tmax/__b)) || \
++	(__b == (typeof(__b))-1 && __a == __tmin);			\
++})
++
++#define check_add_overflow(a, b, d)					\
++	__builtin_choose_expr(is_signed_type(typeof(a)),		\
++			__signed_add_overflow(a, b, d),			\
++			__unsigned_add_overflow(a, b, d))
++
++#define check_sub_overflow(a, b, d)					\
++	__builtin_choose_expr(is_signed_type(typeof(a)),		\
++			__signed_sub_overflow(a, b, d),			\
++			__unsigned_sub_overflow(a, b, d))
++
++#define check_mul_overflow(a, b, d)					\
++	__builtin_choose_expr(is_signed_type(typeof(a)),		\
++			__signed_mul_overflow(a, b, d),			\
++			__unsigned_mul_overflow(a, b, d))
++
++#endif /* ! __has_builtin overflow */
++
++/**
++ * array_size() - Calculate size of 2-dimensional array.
++ *
++ * @a: dimension one
++ * @b: dimension two
++ *
++ * Calculates size of 2-dimensional array: @a * @b.
++ *
++ * Returns: number of bytes needed to represent the array or SIZE_MAX on
++ * overflow.
++ */
++static inline __must_check size_t ksu_array_size(size_t a, size_t b)
++{
++	size_t bytes;
++
++	if (check_mul_overflow(a, b, &bytes))
++		return SIZE_MAX;
++
++	return bytes;
++}
++#define array_size ksu_array_size
++
++/**
++ * array3_size() - Calculate size of 3-dimensional array.
++ *
++ * @a: dimension one
++ * @b: dimension two
++ * @c: dimension three
++ *
++ * Calculates size of 3-dimensional array: @a * @b * @c.
++ *
++ * Returns: number of bytes needed to represent the array or SIZE_MAX on
++ * overflow.
++ */
++static inline __must_check size_t ksu_array3_size(size_t a, size_t b, size_t c)
++{
++	size_t bytes;
++
++	if (check_mul_overflow(a, b, &bytes))
++		return SIZE_MAX;
++	if (check_mul_overflow(bytes, c, &bytes))
++		return SIZE_MAX;
++
++	return bytes;
++}
++#define array3_size ksu_array3_size
++
++static inline __must_check size_t ksu_ab_c_size(size_t n, size_t size, size_t c)
++{
++	size_t bytes;
++
++	if (check_mul_overflow(n, size, &bytes))
++		return SIZE_MAX;
++	if (check_add_overflow(bytes, c, &bytes))
++		return SIZE_MAX;
++
++	return bytes;
++}
++#define __ab_c_size ksu_ab_c_size
++
++#ifndef __same_type
++#define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
++#endif
++
++#ifndef __must_be_array
++#define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
++#endif
++
++/**
++ * struct_size() - Calculate size of structure with trailing array.
++ * @p: Pointer to the structure.
++ * @member: Name of the array member.
++ * @n: Number of elements in the array.
++ *
++ * Calculates size of memory needed for structure @p followed by an
++ * array of @n @member elements.
++ *
++ * Return: number of bytes needed or SIZE_MAX on overflow.
++ */
++#ifndef struct_size
++#define struct_size(p, member, n)					\
++	__ab_c_size(n,							\
++		    sizeof(*(p)->member) + __must_be_array((p)->member),\
++		    sizeof(*(p)))
++#endif
++
++#endif /* __LINUX_OVERFLOW_H */
+-- 
+2.43.0
+
