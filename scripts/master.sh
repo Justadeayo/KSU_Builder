@@ -9,7 +9,7 @@
 # Usage (from the repository root, after checkout):
 #   bash scripts/master.sh deps
 #   bash scripts/master.sh clang <clang-version> [dest-dir]
-#   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url> [branch]
+#   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]
 #   bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
 #   bash scripts/master.sh prune-ccache <cache-key>
 #   bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
@@ -120,19 +120,35 @@ cmd_anykernel() {
 }
 
 # ---------------------------------------------------------------- ksu-setup
-# Builds KernelSU from tiann/KernelSU main with this repo's patch series, links
-# the driver into the kernel tree, and appends the options root needs to the defconfig.
-#   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path>
-# ksu-type: None (does nothing), KernelSU (tiann/KernelSU main + patches/ksu).
+# Sets up the root driver in the kernel tree and appends the options root needs.
+#   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path> [setup-url] [branch]
+# ksu-type:
+#   None       does nothing
+#   KernelSU   tiann/KernelSU main with patches/ksu (via ksu-fetch.sh); url is ignored
+#   Uni-SU     runs the setup.sh at <setup-url> (Justadeayo/sKernelSU), branch default master
 cmd_ksu_setup() {
-    local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig>}"
+    local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]}"
     local ksu_type="${2:?ksu-type}" defconfig="${3:?defconfig path}"
+    local url="${4:-}" branch="${5:-master}"
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
     [ "$ksu_type" = "None" ] && { log "ksu-type None, skipping KernelSU setup."; return 0; }
 
-    bash "${script_dir}/ksu-fetch.sh" "$kdir"
+    case "$ksu_type" in
+        KernelSU)
+            bash "${script_dir}/ksu-fetch.sh" "$kdir"
+            ;;
+        Uni-SU)
+            [ -n "$url" ] || die "Uni-SU needs a setup.sh url"
+            cd "$kdir"
+            curl -LSs "$url" > setup.sh
+            sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
+            bash setup.sh "$branch"
+            cd - >/dev/null
+            ;;
+        *) die "unknown ksu-type: $ksu_type" ;;
+    esac
 
     cd "$kdir"
     {
