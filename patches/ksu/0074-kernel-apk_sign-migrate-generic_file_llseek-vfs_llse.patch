@@ -1,0 +1,25 @@
+From 85fa30077597235723d19fb8dd7f847e75ad7dfd Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sat, 14 Jun 2025 16:46:49 +0800
+Subject: [PATCH] kernel: apk_sign: migrate generic_file_llseek to vfs_llseek
+
+---
+ kernel/manager/apk_sign.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/kernel/manager/apk_sign.c b/kernel/manager/apk_sign.c
+index ca4532d1..a8e214df 100644
+--- a/kernel/manager/apk_sign.c
++++ b/kernel/manager/apk_sign.c
+@@ -154,7 +154,7 @@ static __always_inline bool check_v2_signature(char *path, unsigned expected_siz
+ 		return false;
+ 	}
+ 
+-	file_size = generic_file_llseek(fp, 0, SEEK_END);
++	file_size = vfs_llseek(fp, 0, SEEK_END);
+ 	if (file_size < 0)
+ 		goto clean;
+ 
+-- 
+2.43.0
+

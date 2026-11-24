@@ -1,0 +1,74 @@
+From f73f4bc7e912f58bec83f157d48adac19f98a71b Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Tue, 24 Mar 2026 13:47:40 +0800
+Subject: [PATCH] kernel: apk_sign, throne_tracker: heap-ify large stack buffers
+
+---
+ kernel/manager/apk_sign.c       |  7 ++++---
+ kernel/manager/throne_tracker.c | 14 ++++++++------
+ 2 files changed, 12 insertions(+), 9 deletions(-)
+
+diff --git a/kernel/manager/apk_sign.c b/kernel/manager/apk_sign.c
+index a8e214df..c6269ff4 100644
+--- a/kernel/manager/apk_sign.c
++++ b/kernel/manager/apk_sign.c
+@@ -99,17 +99,18 @@ static bool check_block(struct file *fp, loff_t *pos, loff_t block_end, unsigned
+ 		return false;
+ 	}
+ 
+-	char cert[CERT_MAX_LENGTH];
++	char *memory __offstack(CERT_MAX_LENGTH + SHA256_DIGEST_SIZE + SHA256_DIGEST_SIZE * 2 + 1);
++	char *cert = memory;
+ 	if (!read_exact(fp, cert, certificate_size, pos, certificates_end))
+ 		return false;
+ 
+-	unsigned char digest[SHA256_DIGEST_SIZE];
++	unsigned char *digest = cert + CERT_MAX_LENGTH;
+ 	if (ksu_sha256(cert, certificate_size, digest)) {
+ 		pr_info("sha256 error\n");
+ 		return false;
+ 	}
+ 
+-	char hash_str[SHA256_DIGEST_SIZE * 2 + 1];
++	char *hash_str = digest + SHA256_DIGEST_SIZE;
+ 	hash_str[SHA256_DIGEST_SIZE * 2] = '\0';
+ 
+ 	bin2hex(hash_str, digest, SHA256_DIGEST_SIZE);
+diff --git a/kernel/manager/throne_tracker.c b/kernel/manager/throne_tracker.c
+index 0ab22e9e..b116c29d 100644
+--- a/kernel/manager/throne_tracker.c
++++ b/kernel/manager/throne_tracker.c
+@@ -140,14 +140,16 @@ static noinline void search_manager(const char *path, int depth, struct list_hea
+ 	INIT_LIST_HEAD(&data_path_list);
+ 	unsigned long data_app_magic = 0;
+ 
++	char *memory __offstack(sizeof(struct data_path) + DATA_PATH_LEN);
++
+ 	// First depth
+-	struct data_path data;
+-	strscpy(data.dirpath, path, DATA_PATH_LEN);
+-	data.depth = depth;
+-	list_add_tail(&data.list, &data_path_list);
++	struct data_path *data = (struct data_path *)memory;
++	strscpy(data->dirpath, path, DATA_PATH_LEN);
++	data->depth = depth;
++	list_add_tail(&data->list, &data_path_list);
+ 
+ 	// we put the apk path we collected here
+-	char candidate_path[DATA_PATH_LEN];
++	char *candidate_path = memory + sizeof(struct data_path);
+ 	candidate_path[0] = 0;
+ 
+ 	for (i = depth; i >= 0; i--) {
+@@ -204,7 +206,7 @@ static noinline void search_manager(const char *path, int depth, struct list_hea
+ 
+ 		skip_iterate:
+ 			list_del(&pos->list);
+-			if (pos != &data)
++			if (pos != data)
+ 				kfree(pos);
+ 		}
+ 	}
+-- 
+2.43.0
+

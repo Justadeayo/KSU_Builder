@@ -1,0 +1,36 @@
+From cafeaaaf0746830aa978438b5c47c478cee9cff1 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sun, 15 Jun 2025 20:15:39 +0800
+Subject: [PATCH] kernel: throne_tracker: handle filldir_t ABI mismatch on <= 3.18
+
+---
+ kernel/manager/throne_tracker.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/kernel/manager/throne_tracker.c b/kernel/manager/throne_tracker.c
+index 85d65a32..0ab22e9e 100644
+--- a/kernel/manager/throne_tracker.c
++++ b/kernel/manager/throne_tracker.c
+@@ -66,9 +66,18 @@ static bool maybe_manager_apk_dir(const char *path)
+ 	return strncmp(pkg, KSU_PACKAGE_NAME, sizeof(KSU_PACKAGE_NAME)) == 0;
+ }
+ 
+-static FILLDIR_RETURN_TYPE my_actor(struct dir_context *ctx, const char *name, int namelen, loff_t off, u64 ino,
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,19,0)
++#define MY_ACTOR_CTX_ARG struct dir_context *ctx
++#else
++#define MY_ACTOR_CTX_ARG void *ctx_void
++#endif
++
++static FILLDIR_RETURN_TYPE my_actor(MY_ACTOR_CTX_ARG, const char *name, int namelen, loff_t off, u64 ino,
+ 									unsigned int d_type)
+ {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3,19,0)
++	struct dir_context *ctx = (struct dir_context *)ctx_void;
++#endif
+ 	struct my_dir_context *my_ctx = container_of(ctx, struct my_dir_context, ctx);
+ 
+ 	// we put the apk path we collected here
+-- 
+2.43.0
+
