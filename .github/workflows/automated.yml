@@ -105,6 +105,12 @@ jobs:
       - name: Setup KernelSU & Configure Defconfig
         run: |
           bash scripts/master.sh ksu-setup kernel KernelSU "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
       - name: Derive release manager certificate
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
