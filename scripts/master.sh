@@ -120,30 +120,28 @@ cmd_anykernel() {
 }
 
 # ---------------------------------------------------------------- ksu-setup
-# Runs a KernelSU-family setup.sh inside the kernel tree and appends the
-# options that root needs to the defconfig.
-#   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path> <setup-url> [branch]
-# ksu-type: None (does nothing), KernelSU (Justadeayo/KernelSU), Uni-SU (Justadeayo/sKernelSU).
-# Optional 5th argument is the driver branch, default master.
+# Builds KernelSU from tiann/KernelSU main with this repo's patch series, links
+# the driver into the kernel tree, and appends the options root needs to the defconfig.
+#   ksu-setup <kernel-dir> <ksu-type> <defconfig-rel-path>
+# ksu-type: None (does nothing), KernelSU (tiann/KernelSU main + patches/ksu).
 cmd_ksu_setup() {
-    local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url>}"
-    local ksu_type="${2:?ksu-type}" defconfig="${3:?defconfig path}" url="${4:?setup.sh url}"
-    local branch="${5:-master}"
+    local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig>}"
+    local ksu_type="${2:?ksu-type}" defconfig="${3:?defconfig path}"
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
     [ "$ksu_type" = "None" ] && { log "ksu-type None, skipping KernelSU setup."; return 0; }
 
-    cd "$kdir"
-    curl -LSs "$url" > setup.sh
-    sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-    bash setup.sh "$branch"
+    bash "${script_dir}/ksu-fetch.sh" "$kdir"
 
+    cd "$kdir"
     {
         echo "CONFIG_KSU=y"
         echo "CONFIG_KPROBES=y"
         echo "CONFIG_KPROBE_EVENTS=y"
         echo "CONFIG_KSU_KPROBE_HOOKS=y"
         echo "CONFIG_OVERLAY_FS=y"
-        # Needed for the KernelSU fork driver to get root on this kernel
+        # Needed for the KernelSU driver to get root on this kernel
         [ "$ksu_type" = "KernelSU" ] && echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"
     } >> "$defconfig"
     cd - >/dev/null
