@@ -20,15 +20,7 @@ env:
   KERNEL_NAME: "XCalibur-XF"
 
 jobs:
-  sync:
-    uses: ./.github/workflows/sync.yml
-    secrets: inherit
-    permissions:
-      contents: write
-      actions: write
-
   build-manager:
-    needs: sync
     uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
 
   notify_start:
@@ -90,7 +82,7 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
 
-          git clone --depth=1 https://github.com/Justadeayo/KernelSU.git KSU_REPO
+          git clone --depth=1 https://github.com/tiann/KernelSU.git KSU_REPO
           cd KSU_REPO
           KSU_LOG=$(git log -1 --format="%s" | tr -d '"\n')
           KSU_HASH=$(git rev-parse --short HEAD)
@@ -111,7 +103,7 @@ jobs:
           fi
       - name: Setup KernelSU & Configure Defconfig
         run: |
-          bash scripts/master.sh ksu-setup kernel KernelSU "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" "https://raw.githubusercontent.com/Justadeayo/KernelSU/refs/heads/master/kernel/setup.sh"
+          bash scripts/master.sh ksu-setup kernel KernelSU "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
       - name: Reset ccache statistics
         run: bash scripts/ccache-summary.sh reset
 
