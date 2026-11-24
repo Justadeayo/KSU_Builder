@@ -64,13 +64,16 @@ else
     done
 fi
 
-# Restore upstream kernel/Kbuild, which the patch series deletes; it computes the version.
-git -C "$SRC" checkout --quiet "$UPSTREAM_SHA" -- kernel/Kbuild || die "upstream has no kernel/Kbuild"
+# The series deletes kernel/Kbuild and builds with the unity Makefile. Kbuild wins over
+# Makefile in the same directory, so a Kbuild left behind would drop the build's sources.
+[ ! -e "$SRC/kernel/Kbuild" ] || die "kernel/Kbuild is present and would shadow kernel/Makefile"
 
 BUILT_SHA="$(git -C "$SRC" rev-parse HEAD)"
 KSU_VERSION=$((30000 + $(git -C "$SRC" rev-list --count HEAD)))
 DIFF_SHA="$(git -C "$SRC" diff HEAD | sha256sum | cut -d' ' -f1)"
 log "KSU_VERSION=${KSU_VERSION} (upstream commit count, same formula as kernel/Kbuild)"
+sed -i -E "s/-DKSU_VERSION=[0-9]+/-DKSU_VERSION=${KSU_VERSION}/" "$SRC/kernel/Makefile"
+grep -q "DKSU_VERSION=${KSU_VERSION}\b" "$SRC/kernel/Makefile" || die "could not set KSU_VERSION in kernel/Makefile"
 
 if [ "$SOURCE_ONLY" = 1 ]; then
     log "Source ready at ${SRC} (source-only mode, no kernel tree touched)"
