@@ -1,0 +1,93 @@
+From 57fde2383b8462b6f7c8398ddb5a85126d1081da Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Mon, 12 Oct 2026 07:22:55 +0800
+Subject: [PATCH] kernel: feature: shell_su_adb_only: adjust for downstream
+
+---
+ kernel/feature/shell_su_adb_only.c | 22 ++++++++++++++++++++--
+ kernel/feature/shell_su_adb_only.h |  2 +-
+ 2 files changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/kernel/feature/shell_su_adb_only.c b/kernel/feature/shell_su_adb_only.c
+index 438b1125..65730431 100644
+--- a/kernel/feature/shell_su_adb_only.c
++++ b/kernel/feature/shell_su_adb_only.c
+@@ -4,12 +4,16 @@
+ // it is a real `adb shell` session, or by a KernelSU root process (e.g. adb
+ // daemons provided by modules such as altdb). The latter is no escalation, as
+ // only processes already granted root by KernelSU run in the ksu domain.
++#ifdef KSU_CAN_USE_JUMP_LABEL
+ static DEFINE_STATIC_KEY_FALSE(ksu_shell_su_adb_only);
++#else
++static bool ksu_shell_su_adb_only __read_mostly = false;
++#endif
+ 
+ // Deny instead of walking an unbounded chain of ancestors
+ #define MAX_ANCESTOR_DEPTH 128
+ 
+-static bool has_trusted_ancestor(void)
++static noinline bool has_trusted_ancestor(void)
+ {
+ 	struct task_struct *t;
+ 	int depth = 0;
+@@ -29,29 +33,43 @@ static bool has_trusted_ancestor(void)
+ 	return found;
+ }
+ 
+-bool ksu_shell_su_allowed_for_current(void)
++static inline bool ksu_shell_su_allowed_for_current(void)
+ {
++#ifdef KSU_CAN_USE_JUMP_LABEL
+ 	if (!static_branch_unlikely(&ksu_shell_su_adb_only)) {
+ 		return true;
+ 	}
++#else
++	if (likely(!ksu_shell_su_adb_only))
++		return true;
++#endif
+ 
+ 	return has_trusted_ancestor();
+ }
+ 
+ static int shell_su_adb_only_feature_get(u64 *value)
+ {
++#ifdef KSU_CAN_USE_JUMP_LABEL
+ 	*value = static_key_enabled(&ksu_shell_su_adb_only) ? 1 : 0;
++#else
++	*value = ksu_shell_su_adb_only ? 1 : 0;
++#endif
+ 	return 0;
+ }
+ 
+ static int shell_su_adb_only_feature_set(u64 value)
+ {
+ 	bool enable = value != 0;
++#ifdef KSU_CAN_USE_JUMP_LABEL
+ 	if (enable) {
+ 		static_key_enable(&ksu_shell_su_adb_only.key);
+ 	} else {
+ 		static_key_disable(&ksu_shell_su_adb_only.key);
+ 	}
++#else
++	ksu_shell_su_adb_only = !!enable;
++#endif
++	smp_mb();
+ 	pr_info("shell_su_adb_only: set to %d\n", enable);
+ 	return 0;
+ }
+diff --git a/kernel/feature/shell_su_adb_only.h b/kernel/feature/shell_su_adb_only.h
+index 3fae5ce9..09e6a1a9 100644
+--- a/kernel/feature/shell_su_adb_only.h
++++ b/kernel/feature/shell_su_adb_only.h
+@@ -4,7 +4,7 @@
+ // Extra check for current running as shell, it never grants root by itself:
+ // shell still has to be allowed by the allowlist. Always true when the feature
+ // is disabled; otherwise current must descend from adbd or a ksu domain process.
+-bool ksu_shell_su_allowed_for_current(void);
++static inline bool ksu_shell_su_allowed_for_current(void);
+ 
+ void ksu_shell_su_adb_only_init(void);
+ 
+-- 
+2.43.0
+

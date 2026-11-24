@@ -1,0 +1,49 @@
+From 5144f9d993490c3808ff73de0b56b46a7bccc2ab Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Wed, 14 Oct 2026 08:05:42 +0800
+Subject: [PATCH] kernel: expose CONFIG_COMPAT undef to Kconfig
+
+---
+ kernel/Kconfig | 10 ++++++++++
+ kernel/ksu.c   |  4 ++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/kernel/Kconfig b/kernel/Kconfig
+index 4d94a4dd..d9ad76d0 100644
+--- a/kernel/Kconfig
++++ b/kernel/Kconfig
+@@ -38,6 +38,16 @@ config KSU_TAMPER_SYSCALL_TABLE
+ 	  complies with Clang CFI.
+ 	  Verified on 3.0 ~ 7.1.
+ 
++config KSU_DISABLE_32BIT_HOOKS
++	bool "disable 32-bit symbol hooking"
++	depends on KSU
++	depends on 64BIT && COMPAT
++	depends on (KSU_TAMPER_SYSCALL_TABLE || KSU_HACK_ARM64_BRANCH_LINK)
++	default n
++	help
++	  Skips hooking 32-bit syscalls (compat_sys_call_table). Mostly useful for zygote64-only devices.
++	  Author assumes you know what you're doing, __builtin_assume(!!&user_brain).
++
+ config KSU_LSM_SECURITY_HOOKS
+ 	bool "Use LSM security hooks"
+ 	depends on KSU
+diff --git a/kernel/ksu.c b/kernel/ksu.c
+index c1d9a196..b9f2e29a 100644
+--- a/kernel/ksu.c
++++ b/kernel/ksu.c
+@@ -52,6 +52,10 @@
+ #include "selinux/selinux.h"
+ #include "selinux/sepolicy.h"
+ 
++#ifdef CONFIG_KSU_DISABLE_32BIT_HOOKS
++#undef CONFIG_COMPAT
++#endif
++
+ // syscall table defs and patcher
+ #include "downstream/syscall_table_common.h"
+ #include "downstream/vmap_patch.h"
+-- 
+2.43.0
+

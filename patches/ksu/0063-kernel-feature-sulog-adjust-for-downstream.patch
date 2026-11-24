@@ -1,0 +1,192 @@
+From 05a55b000713163383b88fe69cf3f115a61bbee8 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Sat, 14 Nov 2026 19:42:39 +0800
+Subject: [PATCH] kernel: feature: sulog: adjust for downstream
+
+---
+ kernel/feature/sucompat.c |  4 +++
+ kernel/feature/sulog.c    |  5 ++++
+ kernel/sulog/event.c      | 24 +++++++++++-------
+ kernel/sulog/event.h      | 53 +++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 77 insertions(+), 9 deletions(-)
+
+diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
+index 27d466a8..3c3e139d 100644
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -303,12 +303,14 @@ static __always_inline void ksu_sucompat_user_execve(const char __user **filenam
+ 	if (!is_su_allowed((const void **)filename_user))
+ 		return;
+ 
++	ksu_sulog_emit_sucompat_pre(nullptr, *filename_user, argv);
+ 	if (!is_user_filename_su(filename_user))
+ 		return;
+ 
+ 	if (!!escape_with_root_profile())
+ 		return;
+ 
++	ksu_sulog_emit_sucompat_post(nullptr, *filename_user, argv);
+ 	if (!ksyscall_execve_ksud(syscall_name, argv, envp))
+ 		return;
+ 
+@@ -396,12 +398,14 @@ static __always_inline void ksu_sucompat_kernel_execve(int *restrict fd, void **
+ 	if (!!flags && !!*flags)
+ 		return;
+ 
++	ksu_sulog_emit_sucompat_pre(*filename_ptr, nullptr, u_argv);
+ 	if (!is_kernel_filename_su((const char **)filename_ptr))
+ 		return;
+ 
+ 	if (!!escape_with_root_profile())
+ 		return;
+ 
++	ksu_sulog_emit_sucompat_post(*filename_ptr, nullptr, u_argv);
+ 	if (!ksyscall_execve_ksud(function_name, u_argv, u_envp))
+ 		return;
+ 
+diff --git a/kernel/feature/sulog.c b/kernel/feature/sulog.c
+index 9f76805c..14e29e09 100644
+--- a/kernel/feature/sulog.c
++++ b/kernel/feature/sulog.c
+@@ -11,6 +11,11 @@ static int sulog_feature_set(u64 value)
+ 	bool enable = value != 0;
+ 
+ 	ksu_sulog_enabled = enable;
++	if (ksu_sulog_enabled)
++		ksu_sulog_branch_enable();
++	else
++		ksu_sulog_branch_disable();
++
+ 	pr_info("sulog: set to %d\n", enable);
+ 	return 0;
+ }
+diff --git a/kernel/sulog/event.c b/kernel/sulog/event.c
+index be18eb46..bfa08ed7 100644
+--- a/kernel/sulog/event.c
++++ b/kernel/sulog/event.c
+@@ -162,7 +162,7 @@ static __u32 ksu_sulog_flatten_argv(const char __user *const __user *argv_user,
+ 	return used + 1;
+ }
+ 
+-static struct ksu_sulog_pending_event *ksu_sulog_capture(__u16 event_type, const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp)
++static struct ksu_sulog_pending_event *ksu_sulog_capture(__u16 event_type, const char *kernel_filename, const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp)
+ {
+ 	struct ksu_sulog_pending_event *pending = NULL;
+ 	struct ksu_sulog_event *event;
+@@ -189,9 +189,15 @@ static struct ksu_sulog_pending_event *ksu_sulog_capture(__u16 event_type, const
+ 
+ 	remaining = KSU_SULOG_MAX_PAYLOAD_LEN - sizeof(*event);
+ 	filename_buf = (char *)payload + sizeof(*event);
+-	filename_len = ksu_sulog_copy_filename(filename_user, filename_buf, min(remaining, KSU_SULOG_MAX_FILENAME_LEN));
+-	if (!filename_len)
+-		goto out_free_payload;
++	if (!kernel_filename) {
++		filename_len = ksu_sulog_copy_filename(filename_user, filename_buf, min(remaining, KSU_SULOG_MAX_FILENAME_LEN));
++		if (!filename_len)
++			goto out_free_payload;
++	} else {
++		filename_len = strscpy(filename_buf, kernel_filename, KSU_SULOG_MAX_FILENAME_LEN);
++		if (!filename_len || filename_len < 0)
++			goto out_free_payload;		
++	}
+ 
+ 	remaining -= filename_len;
+ 	argv_buf = filename_buf + filename_len;
+@@ -225,7 +231,7 @@ static struct ksu_sulog_pending_event *ksu_sulog_capture_grant_root(const struct
+ 	struct ksu_sulog_pending_event *pending;
+ 	struct ksu_sulog_event *event;
+ 
+-	pending = ksu_sulog_capture(KSU_SULOG_EVENT_IOCTL_GRANT_ROOT, NULL, NULL, gfp);
++	pending = ksu_sulog_capture(KSU_SULOG_EVENT_IOCTL_GRANT_ROOT, NULL, NULL, NULL, gfp);
+ 	if (!pending)
+ 		return NULL;
+ 
+@@ -253,14 +259,14 @@ static void ksu_sulog_free_pending(struct ksu_sulog_pending_event *pending)
+ 	kfree(pending);
+ }
+ 
+-struct ksu_sulog_pending_event *ksu_sulog_capture_root_execve(const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp)
++struct ksu_sulog_pending_event *ksu_sulog_capture_root_execve(const char *filename_kernel, const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp)
+ {
+-	return ksu_sulog_capture(KSU_SULOG_EVENT_ROOT_EXECVE, filename_user, argv_user, gfp);
++	return ksu_sulog_capture(KSU_SULOG_EVENT_ROOT_EXECVE, filename_kernel, filename_user, argv_user, gfp);
+ }
+ 
+-struct ksu_sulog_pending_event *ksu_sulog_capture_sucompat(const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp)
++struct ksu_sulog_pending_event *ksu_sulog_capture_sucompat(const char *filename_kernel, const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp)
+ {
+-	return ksu_sulog_capture(KSU_SULOG_EVENT_SUCOMPAT, filename_user, argv_user, gfp);
++	return ksu_sulog_capture(KSU_SULOG_EVENT_SUCOMPAT, filename_kernel, filename_user, argv_user, gfp);
+ }
+ 
+ void ksu_sulog_emit_pending(struct ksu_sulog_pending_event *pending, int retval, gfp_t gfp)
+diff --git a/kernel/sulog/event.h b/kernel/sulog/event.h
+index 34e0ac2c..bf27c1e9 100644
+--- a/kernel/sulog/event.h
++++ b/kernel/sulog/event.h
+@@ -7,9 +7,62 @@ struct ksu_sulog_pending_event;
+ int ksu_sulog_events_init(void);
+ void ksu_sulog_events_exit(void);
+ 
++struct ksu_sulog_pending_event *ksu_sulog_capture_root_execve(const char *filename_kernel, const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp);
++struct ksu_sulog_pending_event *ksu_sulog_capture_sucompat(const char *filename_kernel, const char __user *filename_user, const char __user *const __user *argv_user, gfp_t gfp);
+ void ksu_sulog_emit_pending(struct ksu_sulog_pending_event *pending, int retval, gfp_t gfp);
+ int ksu_sulog_emit_grant_root(int retval, __u32 uid, __u32 euid, gfp_t gfp);
+ 
+ struct ksu_event_queue *ksu_sulog_get_queue(void);
+ 
++static noinline void do_ksu_sulog_emit_sucompat_pre(const char *filename_kernel, const char __user *filename_user, void ***argv)
++{
++	const char __user *const __user *argv_user = (const char __user *const __user *)*argv;
++	struct ksu_sulog_pending_event *pending_root_execve = ksu_sulog_capture_root_execve(filename_kernel, filename_user, argv_user, GFP_KERNEL);
++	ksu_sulog_emit_pending(pending_root_execve, 0, GFP_KERNEL);
++}
++
++static noinline void do_ksu_sulog_emit_sucompat_post(const char *filename_kernel, const char __user *filename_user, void ***argv)
++{
++	const char __user *const __user *argv_user = (const char __user *const __user *)*argv;
++	struct ksu_sulog_pending_event *pending_sucompat = ksu_sulog_capture_sucompat(filename_kernel, filename_user, argv_user, GFP_KERNEL);
++	ksu_sulog_emit_pending(pending_sucompat, 0, GFP_KERNEL);
++}
++
++#ifdef KSU_CAN_USE_JUMP_LABEL // see kernel_compat.h
++DEFINE_STATIC_KEY_FALSE(ksu_sulog_key);
++static __always_inline void ksu_sulog_emit_sucompat_pre(const char *filename_kernel, const char __user *filename_user, void ***argv)
++{
++	if (static_branch_unlikely(&ksu_sulog_key))
++		do_ksu_sulog_emit_sucompat_pre(filename_kernel, filename_user, argv);
++}
++
++static __always_inline void ksu_sulog_emit_sucompat_post(const char *filename_kernel, const char __user *filename_user, void ***argv)
++{
++	if (static_branch_unlikely(&ksu_sulog_key))
++		do_ksu_sulog_emit_sucompat_post(filename_kernel, filename_user, argv);
++}
++
++static inline void ksu_sulog_branch_enable() { static_branch_enable(&ksu_sulog_key); smp_mb(); }
++static inline void ksu_sulog_branch_disable() { static_branch_disable(&ksu_sulog_key); smp_mb(); }
++
++#else /* !KSU_CAN_USE_JUMP_LABEL */
++static bool ksu_sulog_enabled __read_mostly;
++
++static __always_inline void ksu_sulog_emit_sucompat_pre(const char *filename_kernel, const char __user *filename_user, void ***argv)
++{
++	if (unlikely(ksu_sulog_enabled))
++		do_ksu_sulog_emit_sucompat_pre(filename_kernel, filename_user, argv);
++}
++
++static __always_inline void ksu_sulog_emit_sucompat_post(const char *filename_kernel, const char __user *filename_user, void ***argv)
++{
++	if (unlikely(ksu_sulog_enabled))
++		do_ksu_sulog_emit_sucompat_post(filename_kernel, filename_user, argv);
++}
++
++static inline void ksu_sulog_branch_enable() { } // no-op
++static inline void ksu_sulog_branch_disable() { } // no-op
++
++#endif  /* !KSU_CAN_USE_JUMP_LABEL */
++
+ #endif
+-- 
+2.43.0
+
