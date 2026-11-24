@@ -1,0 +1,46 @@
+From 08ec16d3435f8a1dea7c534438244db2f9e7e338 Mon Sep 17 00:00:00 2001
+From: Justus <justadeayo@gmail.com>
+Date: Thu, 27 Nov 2025 12:59:47 +0800
+Subject: [PATCH] kernel: supercall: wire up toolkit and ksuver/ksuflags overrides
+
+---
+ kernel/supercall/dispatch.c  | 6 ++++++
+ kernel/supercall/supercall.c | 5 +----
+ 2 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/kernel/supercall/dispatch.c b/kernel/supercall/dispatch.c
+index afe1508a..ed1a6a7e 100644
+--- a/kernel/supercall/dispatch.c
++++ b/kernel/supercall/dispatch.c
+@@ -30,6 +30,12 @@ static int do_get_info(void __user *arg)
+ 	cmd.features = KSU_FEATURE_MAX;
+ 	cmd.uapi_version = KERNEL_SU_UAPI_VERSION;
+ 
++	if (ksuver_override)
++		cmd.version = ksuver_override;
++
++	if (ksuflags_override)
++		cmd.flags = ksuflags_override;
++
+ 	if (copy_to_user(arg, &cmd, sizeof(cmd))) {
+ 		pr_err("get_version: copy_to_user failed\n");
+ 		return -EFAULT;
+diff --git a/kernel/supercall/supercall.c b/kernel/supercall/supercall.c
+index 8800baa2..e6a1e75e 100644
+--- a/kernel/supercall/supercall.c
++++ b/kernel/supercall/supercall.c
+@@ -106,10 +106,7 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user
+ 		return 0;
+ 	}
+ 
+-	// grab a copy as we write the pointer on the pointer
+-	// u64 reply = (u64)*arg;	
+-	// extensions
+-
++	toolkit_handle_sys_reboot(magic1, magic2, cmd, arg);
+ 	return 0;
+ }
+ 
+-- 
+2.43.0
+
