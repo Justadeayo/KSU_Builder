@@ -33,6 +33,12 @@ on:
         required: true
         type: string
         
+      branch:
+        description: KernelSU Branch
+        required: true
+        type: string 
+        default: master
+
       defconfig_name:
         description: Defconfig Name
         required: true
@@ -51,6 +57,7 @@ on:
         options:
           - None
           - KernelSU
+          - Uni-SU
         default: KernelSU
 
       BUILD_COMMIT:
@@ -89,7 +96,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: start
-        run: echo "epoch=$(bash scripts/notify.sh start '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.ksu_type == 'None' && 'None' || 'KernelSU' }}' '${{ inputs.clang_version }}')" >> "$GITHUB_OUTPUT"
+        run: echo "epoch=$(bash scripts/notify.sh start '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.ksu_type == 'Uni-SU' && 'Universal' || inputs.ksu_type == 'None' && 'None' || 'KernelSU' }}' '${{ inputs.clang_version }}')" >> "$GITHUB_OUTPUT"
 
   Kernel_CI:
     needs: notify_start
@@ -149,7 +156,12 @@ jobs:
         run: |
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
 
-          git clone --depth=1 https://github.com/tiann/KernelSU.git -b main KSU_REPO
+          BRANCH="${{ inputs.branch || 'master' }}"
+          if [[ "${{ inputs.ksu_type }}" == "Uni-SU" ]]; then
+            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git -b "$BRANCH" KSU_REPO
+          else
+            git clone --depth=1 https://github.com/tiann/KernelSU.git -b main KSU_REPO
+          fi
 
           cd KSU_REPO
           KSU_LOG=$(git log -1 --format="%s" | tr -d '"\n')
@@ -171,7 +183,11 @@ jobs:
           fi
       - name: Setup KernelSU & Configure Defconfig
         run: |
-          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}"
+          case "${{ inputs.ksu_type }}" in
+            Uni-SU) URL="https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/${{ inputs.branch || 'master' }}/kernel/setup.sh" ;;
+            *)      URL="" ;;
+          esac
+          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL" "${{ inputs.branch || 'master' }}"
       - name: Reset ccache statistics
         run: bash scripts/ccache-summary.sh reset
 
@@ -240,7 +256,7 @@ jobs:
 
       - name: Notify finish
         run: |
-          bash scripts/notify.sh finish '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.clang_version }}' "${{ needs.notify_start.outputs.epoch }}" 'kernel_out/*.zip:${{ inputs.ksu_type == 'None' && 'None' || 'KernelSU' }}'
+          bash scripts/notify.sh finish '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.clang_version }}' "${{ needs.notify_start.outputs.epoch }}" 'kernel_out/*.zip:${{ inputs.ksu_type == 'Uni-SU' && 'Universal' || inputs.ksu_type == 'None' && 'None' || 'KernelSU' }}'
 
   Cache_Cleanup:
     needs: Kernel_CI
