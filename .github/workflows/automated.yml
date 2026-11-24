@@ -105,6 +105,18 @@ jobs:
       - name: Setup KernelSU & Configure Defconfig
         run: |
           bash scripts/master.sh ksu-setup kernel KernelSU "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+      - name: Derive release manager certificate
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          : "${RELEASE_KEYSTORE_BASE64:?set the RELEASE_KEYSTORE_BASE64 secret}"
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          bash scripts/release-cert.sh "$RUNNER_TEMP/release.keystore" "$RELEASE_KEY_ALIAS" "$RELEASE_KEYSTORE_PASSWORD" \
+            | while IFS='=' read -r k v; do echo "$k=$v" >> "$GITHUB_ENV"; done
+          rm -f "$RUNNER_TEMP/release.keystore"
+
       - name: Reset ccache statistics
         run: bash scripts/ccache-summary.sh reset
 
