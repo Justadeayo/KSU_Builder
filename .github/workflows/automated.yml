@@ -22,6 +22,7 @@ env:
 jobs:
   build-manager:
     uses: Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev
+    secrets: inherit
 
   notify_start:
     runs-on: ubuntu-24.04
