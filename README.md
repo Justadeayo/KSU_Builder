@@ -30,7 +30,6 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 | `kernel.yml` (Kernel Build) | Manual | Standalone kernel build from any source, with a KernelSU branch choice. Raw kernel images are an optional upload. No Manager APK | build image, clang (fallback), ksu-setup, compile, prune-ccache, notify, AnyKernel3 |
 | `build-manager.yml` (Build Manager) | Manual; called by `automated.yml` | Builds the KernelSU Manager APK and `ksud` binaries | none (self-contained) |
 | `release.yml` (Release) | Tag `v*`; manual; called | Publishes a GitHub Release from the automated build | none (calls `automated.yml`) |
-| `sync.yml` (Sync Upstream Updates) | Manual, or called by `automated.yml` at the start of each run | Keeps the KernelSU fork aligned with upstream | none |
 
 "Uses master script" lists the shared steps each workflow takes from [`scripts/master.sh`](docs/master-script.md). Steps unique to a workflow stay in that workflow.
 
