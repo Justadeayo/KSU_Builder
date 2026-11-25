@@ -74,10 +74,6 @@ DIFF_SHA="$(git -C "$SRC" diff HEAD | sha256sum | cut -d' ' -f1)"
 log "KSU_VERSION=${KSU_VERSION} (upstream commit count, same formula as kernel/Kbuild)"
 sed -i -E "s/-DKSU_VERSION=[0-9]+/-DKSU_VERSION=${KSU_VERSION}/" "$SRC/kernel/Makefile"
 grep -q "DKSU_VERSION=${KSU_VERSION}\b" "$SRC/kernel/Makefile" || die "could not set KSU_VERSION in kernel/Makefile"
-# Release signature values come from the environment (CI derives them from the release keystore).
-# The series hardcodes upstream's values with :=, which would override them; make them defaults.
-sed -i -E 's/^(KSU_EXPECTED_(SIZE|HASH)) :=/\1 ?=/' "$SRC/kernel/Makefile"
-grep -q '^KSU_EXPECTED_SIZE ?=' "$SRC/kernel/Makefile" && grep -q '^KSU_EXPECTED_HASH ?=' "$SRC/kernel/Makefile" || die "could not make KSU_EXPECTED_* overridable in kernel/Makefile"
 
 if [ "$SOURCE_ONLY" = 1 ]; then
     log "Source ready at ${SRC} (source-only mode, no kernel tree touched)"
