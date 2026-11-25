@@ -30,7 +30,7 @@ builds the XCalibur-XF kernel with SUSFS. Use with caution and at your own risk.
          - scripts/ksu.sh
          - scripts/variant.sh
          - config.env
-         - .github/workflows/build.yml
+         - .github/workflows/bakasu.yml
 
        Origin  : Zincore Forge by yureixen
                  [https://github.com/yureixen/zincore-forge](https://github.com/yureixen/zincore-forge)
@@ -171,10 +171,8 @@ builds the XCalibur-XF kernel with SUSFS. Use with caution and at your own risk.
 
 11. VERSION HISTORY
 
-    1.2  |  2026-10-28  |  Renamed to XCalibur-XF. Ownership in the author's
-                           name. Credits moved to a separate section.
-    1.1  |  2026-10-28  |  Restructured. Separated third-party GPL-2.0 files.
-                           Removed unverified certification statement.
+    1.2  |  2026-10-28  |  Renamed to XCalibur-XF. Ownership in the author's name. Credits moved to a separate section.
+    1.1  |  2026-10-28  |  Restructured. Separated third-party GPL-2.0 files. Removed unverified certification statement.
     1.0  |  2026-07-26  |  Initial dev branch license.
 
 --------------------------------------------------------------------------------

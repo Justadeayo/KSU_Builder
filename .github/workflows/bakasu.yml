@@ -3,7 +3,7 @@
 # Copied and modified for Justadeayo/KSU_Builder. Licensed under GPL-2.0; see LICENSE-GPL-2.0.
 #
 # Builds a device with SUSFS. Every input is optional. An empty input keeps the value from builder/devices/<device>.json, so an empty form builds violet exactly as before.
-name: Build SUSFS Kernel
+name: BakaSU Kernel Build
 
 on:
   workflow_dispatch:

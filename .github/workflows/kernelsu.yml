@@ -1,4 +1,4 @@
-name: Kernel Build
+name: KernelSU Kernel Build
 
 on:
   workflow_dispatch:

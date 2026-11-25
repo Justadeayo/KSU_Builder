@@ -21,7 +21,7 @@ on:
 
 jobs:
   build:
-    uses: ./.github/workflows/kernel.yml
+    uses: ./.github/workflows/kernelsu.yml
     with:
       build_manager: true
     secrets: inherit
