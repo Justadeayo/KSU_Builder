@@ -29,11 +29,8 @@ overrides = {
     "kernel_name":    "IN_KERNEL_NAME",
     "kernel_repo":    "IN_KERNEL_REPO",
     "kernel_branch":  "IN_KERNEL_BRANCH",
-    "kernel_version": "IN_KERNEL_VERSION",
     "defconfig":      "IN_DEFCONFIG",
     "clang_version":  "IN_CLANG_VERSION",
-    "ak3_repo":       "IN_AK3_REPO",
-    "ak3_branch":     "IN_AK3_BRANCH",
 }
 
 applied = []
