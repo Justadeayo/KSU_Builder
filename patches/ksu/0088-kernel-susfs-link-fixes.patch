@@ -1,14 +1,15 @@
-From 1f569ce03d4ca553ce4d5c2c1931576faa8e9858 Mon Sep 17 00:00:00 2001
+From 677a2d9180518fba0642b6c9905176aeebc8fa82 Mon Sep 17 00:00:00 2001
 From: Justus <justadeayo@gmail.com>
 Date: Wed, 25 Nov 2026 11:11:22 +0100
 Subject: [PATCH] susfs: link fixes
 
 ---
- kernel/Makefile               |  4 +++
- kernel/feature/sucompat.c     | 22 ++++++++----
- kernel/feature/susfs_compat.c | 68 +++++++++++++++++++++++++++++++++++
- kernel/ksu.c                  |  4 +++
- 4 files changed, 91 insertions(+), 7 deletions(-)
+ kernel/Makefile               |   4 ++
+ kernel/feature/sucompat.c     |  22 ++++---
+ kernel/feature/susfs_compat.c | 112 ++++++++++++++++++++++++++++++++++
+ kernel/ksu.c                  |   4 ++
+ kernel/selinux/rules.c        |  13 ++++
+ 5 files changed, 148 insertions(+), 7 deletions(-)
  create mode 100644 kernel/feature/susfs_compat.c
 
 diff --git a/kernel/Makefile b/kernel/Makefile
@@ -106,11 +107,55 @@ index d883be0f..676b3cee 100644
  	return 0;
 diff --git a/kernel/feature/susfs_compat.c b/kernel/feature/susfs_compat.c
 new file mode 100644
-index 00000000..5c6e92e9
+index 00000000..46ce4a71
 --- /dev/null
 +++ b/kernel/feature/susfs_compat.c
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,112 @@
 +#ifdef CONFIG_KSU_SUSFS
++
++#define KERNEL_INIT_DOMAIN "u:r:init:s0"
++#define KERNEL_ZYGOTE_DOMAIN "u:r:zygote:s0"
++#define KERNEL_PRIV_APP_DOMAIN "u:r:priv_app:s0:c512,c768"
++
++u32 susfs_ksu_sid = 0;
++u32 susfs_init_sid = 0;
++u32 susfs_zygote_sid = 0;
++u32 susfs_priv_app_sid = 0;
++
++static void susfs_set_sid(const char *secctx_name, u32 *out_sid)
++{
++	int err;
++
++	if (!secctx_name || !out_sid)
++		return;
++
++	err = security_secctx_to_secid(secctx_name, strlen(secctx_name), out_sid);
++	if (err) {
++		pr_err("failed setting sid for '%s', err: %d\n", secctx_name, err);
++		return;
++	}
++	pr_info("sid '%u' is set for secctx_name '%s'\n", *out_sid, secctx_name);
++}
++
++void susfs_set_ksu_sid(void)
++{
++	susfs_set_sid(KERNEL_SU_CONTEXT, &susfs_ksu_sid);
++}
++
++void susfs_set_init_sid(void)
++{
++	susfs_set_sid(KERNEL_INIT_DOMAIN, &susfs_init_sid);
++}
++
++void susfs_set_zygote_sid(void)
++{
++	susfs_set_sid(KERNEL_ZYGOTE_DOMAIN, &susfs_zygote_sid);
++}
++
++void susfs_set_priv_app_sid(void)
++{
++	susfs_set_sid(KERNEL_PRIV_APP_DOMAIN, &susfs_priv_app_sid);
++}
 +
 +DEFINE_STATIC_KEY_TRUE(ksu_is_init_rc_hook_enabled);
 +DEFINE_STATIC_KEY_TRUE(ksu_is_input_hook_enabled);
@@ -193,3 +238,37 @@ index 3eff0121..c9bdb441 100644
  #ifdef CONFIG_KSU_TAMPER_SYSCALL_TABLE
  #ifdef CONFIG_ARM64
  	#include "hook/syscall_table_hook_arm64.c"
+diff --git a/kernel/selinux/rules.c b/kernel/selinux/rules.c
+index b679b206..567ffade 100644
+--- a/kernel/selinux/rules.c
++++ b/kernel/selinux/rules.c
+@@ -10,6 +10,13 @@ extern int avc_ss_reset(u32 seqno);
+ extern int avc_ss_reset(struct selinux_avc *avc, u32 seqno);
+ #endif
+ // reset avc cache table, otherwise the new rules will not take effect if already denied
++#ifdef CONFIG_KSU_SUSFS
++void susfs_set_priv_app_sid(void);
++void susfs_set_init_sid(void);
++void susfs_set_ksu_sid(void);
++void susfs_set_zygote_sid(void);
++#endif
++
+ static void reset_avc_cache(u32 seqno)
+ {
+ #if ((!defined(KSU_COMPAT_USE_SELINUX_STATE)) || LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0))
+@@ -237,6 +244,12 @@ out_flush:
+ 	smp_mb();
+ 	reset_avc_cache(get_latest_granting_inc());
+ #endif
++#ifdef CONFIG_KSU_SUSFS
++	susfs_set_priv_app_sid();
++	susfs_set_init_sid();
++	susfs_set_ksu_sid();
++	susfs_set_zygote_sid();
++#endif
+ }
+ 
+ #define KSU_SEPOLICY_MAX_BATCH_SIZE (8U * 1024U * 1024U)
+-- 
+2.43.0
+
