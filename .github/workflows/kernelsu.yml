@@ -137,7 +137,7 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
-      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}${{ inputs.susfs && inputs.ksu_type != 'None' && '-SUSFS' || '' }}
       KSU_LABEL: ${{ inputs.ksu_type }}
       CLANG: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
     steps:
@@ -163,7 +163,7 @@ jobs:
       KERNEL_REPO: ${{ fromJSON(needs.config.outputs.resolved).kernel_repo }}
       KERNEL_BRANCH: ${{ fromJSON(needs.config.outputs.resolved).kernel_branch }}
       DEFCONFIG: ${{ fromJSON(needs.config.outputs.resolved).defconfig }}
-      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}${{ inputs.susfs && inputs.ksu_type != 'None' && '-SUSFS' || '' }}
       CLANG_VERSION: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
       KSU_TYPE: ${{ inputs.ksu_type }}
     permissions:
@@ -248,7 +248,7 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
-      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}${{ inputs.susfs && inputs.ksu_type != 'None' && '-SUSFS' || '' }}
       CLANG: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
       EPOCH: ${{ needs.notify_start.outputs.epoch }}
       KSU_LABEL: ${{ inputs.ksu_type }}
@@ -282,7 +282,7 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
-      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}${{ inputs.susfs && inputs.ksu_type != 'None' && '-SUSFS' || '' }}
       CLANG: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
       EPOCH: ${{ needs.notify_start.outputs.epoch }}
     steps:
