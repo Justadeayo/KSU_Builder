@@ -3,79 +3,117 @@ name: Kernel Build
 on:
   workflow_dispatch:
     inputs:
-      kernel_name:
-        description: Kernel name (used in the zip file name)
-        required: true
-        type: string
-        default: "XCalibur-XF"
-
       device_codename:
-        description: Device codename
-        required: true
+        description: "Device (devices/<name>.json). Empty = violet"
+        required: false
         type: string
-        default: "violet"
-
+        default: ""
       kernel_source:
-        description: Kernel source repo URL
-        required: true
+        description: "Kernel repo URL. Empty = from device JSON"
+        required: false
         type: string
-
+        default: ""
       kernel_branch:
-        description: Kernel source branch
-        required: true
+        description: "Kernel branch. Empty = from device JSON"
+        required: false
         type: string
-
+        default: ""
       defconfig_name:
-        description: Defconfig file name, e.g. violet_defconfig
-        required: true
+        description: "Defconfig target, e.g. vendor/xcalibur-perf_defconfig. Empty = from device JSON"
+        required: false
         type: string
-
-      clang_version:
-        description: Clang toolchain version
-        required: true
-        type: choice
-        options:
-          - clang-r596125
-          - clang-r416183b
-          - clang-r563880
-          - clang-r563880c
-          - clang-r574158
-          - clang-stable
-        default: "clang-r596125"
-
+        default: ""
       ksu_type:
-        description: Root manager (KernelSU tracks tiann/KernelSU main)
-        required: true
-        type: choice
-        options:
-          - KernelSU
-          - None
-        default: KernelSU
-
-      upload_raw_outputs:
-        description: Also upload the raw kernel images (Image, dtb, dtbo) as an artifact
+        description: "KernelSU or None"
+        required: false
+        type: string
+        default: "KernelSU"
+      build_manager:
+        description: "Also build and attach the KernelSU Manager APK"
         required: false
         type: boolean
         default: false
+
+  workflow_call:
+    inputs:
+      device_codename:
+        required: false
+        type: string
+        default: ""
+      kernel_source:
+        required: false
+        type: string
+        default: ""
+      kernel_branch:
+        required: false
+        type: string
+        default: ""
+      defconfig_name:
+        required: false
+        type: string
+        default: ""
+      ksu_type:
+        required: false
+        type: string
+        default: "KernelSU"
+      build_manager:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
 
 env:
   TZ: "Africa/Lagos"
 
 jobs:
+  config:
+    runs-on: ubuntu-24.04
+    outputs:
+      resolved: ${{ steps.resolve.outputs.resolved }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - id: resolve
+        name: Resolve device config (inputs over JSON)
+        env:
+          DEVICE: ${{ inputs.device_codename || 'violet' }}
+          IN_KERNEL_REPO: ${{ inputs.kernel_source }}
+          IN_KERNEL_BRANCH: ${{ inputs.kernel_branch }}
+          IN_DEFCONFIG: ${{ inputs.defconfig_name }}
+        run: |
+          set -euo pipefail
+          RESOLVED="$(python3 scripts/resolve-device.py devices)"
+          echo "resolved=${RESOLVED}" >> "$GITHUB_OUTPUT"
+
   notify_start:
+    needs: config
     runs-on: ubuntu-24.04
     outputs:
       epoch: ${{ steps.start.outputs.epoch }}
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      KSU_LABEL: ${{ inputs.ksu_type }}
+      CLANG: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
     steps:
       - uses: actions/checkout@v7
       - id: start
-        run: echo "epoch=$(bash scripts/notify.sh start '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.ksu_type }}' '${{ inputs.clang_version }}')" >> "$GITHUB_OUTPUT"
+        run: echo "epoch=$(bash scripts/notify.sh start "$DEVICE" "$KERNEL_NAME" "$KSU_LABEL" "$CLANG")" >> "$GITHUB_OUTPUT"
 
-  Kernel_CI:
-    needs: notify_start
+  build-manager:
+    if: ${{ inputs.build_manager }}
+    uses: ./.github/workflows/build-manager.yml
+    secrets: inherit
+
+  build:
+    needs: config
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125
@@ -83,20 +121,22 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-    defaults:
-      run:
-        shell: bash
+      DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
+      KERNEL_REPO: ${{ fromJSON(needs.config.outputs.resolved).kernel_repo }}
+      KERNEL_BRANCH: ${{ fromJSON(needs.config.outputs.resolved).kernel_branch }}
+      DEFCONFIG: ${{ fromJSON(needs.config.outputs.resolved).defconfig }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      CLANG_VERSION: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
+      KSU_TYPE: ${{ inputs.ksu_type }}
     permissions:
       contents: read
       actions: read
-      checks: read
       packages: read
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup swap
+      - name: Set up swap space
         uses: pierotofy/set-swap-space@master
         continue-on-error: true
         with:
@@ -105,17 +145,17 @@ jobs:
       - name: Restore ccache
         uses: ./.github/actions/ccache-restore
         with:
-          device: ${{ inputs.device_codename }}
-          branch: ${{ inputs.kernel_branch }}
+          device: ${{ env.DEVICE }}
+          branch: ${{ env.KERNEL_BRANCH }}
 
       - name: Clone kernel source
         run: |
           rm -rf kernel
-          git clone --depth=1 -b "${{ inputs.kernel_branch }}" "${{ inputs.kernel_source }}" kernel
+          git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
 
-      - name: Prepare clang
+      - name: Link clang
         run: |
-          V="${{ inputs.clang_version }}"
+          V="clang-${CLANG_VERSION}"
           mkdir -p toolchains
           if [ -x "/opt/toolchains/$V/bin/clang" ]; then
             ln -sfn "/opt/toolchains/$V" "toolchains/$V"
@@ -123,9 +163,8 @@ jobs:
             bash scripts/master.sh clang "$V" "toolchains/$V"
           fi
 
-      - name: Setup root manager and configure defconfig
-        run: |
-          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}"
+      - name: Set up root manager and defconfig
+        run: bash scripts/master.sh ksu-setup kernel "$KSU_TYPE" "arch/arm64/configs/$DEFCONFIG"
 
       - name: Reset ccache statistics
         run: bash scripts/ccache-summary.sh reset
@@ -135,34 +174,18 @@ jobs:
           REQUIRE_KSU_TAMPER: ${{ inputs.ksu_type == 'KernelSU' }}
         run: |
           export CCACHE_DIR="$HOME/.ccache" CCACHE_MAXSIZE=5G CCACHE_BASEDIR="$GITHUB_WORKSPACE" CCACHE_NOHASHDIR=1
-          bash scripts/master.sh compile "${{ inputs.clang_version }}" "${{ inputs.defconfig_name }}" kernel "${GITHUB_WORKSPACE}/build.log"
+          bash scripts/master.sh compile "clang-$CLANG_VERSION" "$DEFCONFIG" kernel "$GITHUB_WORKSPACE/build.log"
 
-      - name: ccache stats
+      - name: CCache summary
         if: always()
         run: bash scripts/ccache-summary.sh report
 
-      - name: Make AnyKernel3 zip
+      - name: Package AnyKernel3 zip
         run: |
-          ZIP=$(bash scripts/master.sh anykernel "kernel/out/arch/arm64/boot" "${{ inputs.kernel_name }}" "${{ inputs.device_codename }}" "${{ inputs.ksu_type }}" "toolchains/${{ inputs.clang_version }}/bin")
+          ZIP=$(bash scripts/master.sh anykernel "kernel/out/arch/arm64/boot" "$KERNEL_NAME" "$DEVICE" "$KSU_TYPE" "toolchains/clang-$CLANG_VERSION/bin")
           echo "ZIP_NAME=${ZIP%.zip}" >> "$GITHUB_ENV"
 
-      - name: Collect raw kernel outputs
-        if: ${{ inputs.upload_raw_outputs }}
-        run: |
-          BOOT_DIR="kernel/out/arch/arm64/boot"
-          mkdir -p raw-outputs
-          for f in Image Image.gz Image.gz-dtb dtb.img dtb dtbo.img; do
-            [ -f "$BOOT_DIR/$f" ] && cp "$BOOT_DIR/$f" "raw-outputs/$f"
-          done
-
-      - name: Upload raw kernel artifacts
-        if: ${{ inputs.upload_raw_outputs }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: kernel-raw-outputs
-          path: raw-outputs/*
-
-      - name: Upload kernel zip artifact
+      - name: Upload kernel zip
         uses: actions/upload-artifact@v7
         with:
           name: kernel-zip
@@ -172,18 +195,25 @@ jobs:
         if: always()
         uses: ./.github/actions/ccache-save
         with:
-          device: ${{ inputs.device_codename }}
-          branch: ${{ inputs.kernel_branch }}
+          device: ${{ env.DEVICE }}
+          branch: ${{ env.KERNEL_BRANCH }}
 
-  Dispatch:
+  notify_finish:
     needs:
+      - config
       - notify_start
-      - Kernel_CI
-    if: ${{ !cancelled() && needs.Kernel_CI.result == 'success' }}
+      - build
+      - build-manager
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      CLANG: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
+      EPOCH: ${{ needs.notify_start.outputs.epoch }}
+      KSU_LABEL: ${{ inputs.ksu_type }}
     steps:
       - uses: actions/checkout@v7
 
@@ -193,20 +223,29 @@ jobs:
           name: kernel-zip
           path: kernel_out/
 
-      - name: Notify finish
-        run: |
-          bash scripts/notify.sh finish '${{ inputs.device_codename }}' '${{ inputs.kernel_name }}' '${{ inputs.clang_version }}' "${{ needs.notify_start.outputs.epoch }}" 'kernel_out/*.zip:${{ inputs.ksu_type }}'
+      - name: Download manager APK
+        if: ${{ needs.build-manager.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: manager
+          path: manager_apk/
 
-  Cache_Cleanup:
-    needs: Kernel_CI
-    if: ${{ needs.Kernel_CI.result == 'success' }}
+      - name: Notify finish
+        run: bash scripts/notify.sh finish "$DEVICE" "$KERNEL_NAME" "$CLANG" "$EPOCH" "kernel_out/*.zip:$KSU_LABEL" "manager_apk/*.apk:Manager APK"
+
+  cache-cleanup:
+    needs:
+      - config
+      - build
+    if: ${{ needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}
+      DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
+      KERNEL_BRANCH: ${{ fromJSON(needs.config.outputs.resolved).kernel_branch }}
     steps:
       - uses: actions/checkout@v7
-
       - name: Prune old ccache entries
-        run: bash scripts/master.sh prune-ccache "ccache-${{ inputs.device_codename }}-${{ inputs.kernel_branch }}-"
+        run: bash scripts/master.sh prune-ccache "ccache-${DEVICE}-${KERNEL_BRANCH}-"

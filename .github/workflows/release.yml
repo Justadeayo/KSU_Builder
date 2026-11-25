@@ -21,7 +21,9 @@ on:
 
 jobs:
   build:
-    uses: ./.github/workflows/automated.yml
+    uses: ./.github/workflows/kernel.yml
+    with:
+      build_manager: true
     secrets: inherit
 
   release:
