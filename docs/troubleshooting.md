@@ -46,8 +46,8 @@ None of the googlesource refs has that version. Check the name on [googlesource]
 ### Real SuSFS rejects
 The SuSFS patch doesn't match a kernel file. Download the `xcalibur-xf-<device>-<variant>-rejects` artifact and find the `.rej` file. Add a port patch under `devices/patches/` and apply it in `scripts/ksu.sh`.
 
-### BakaSU is not at the pinned commit
-`scripts/ksu.sh` checks out `KSU_REPO_PIN` from `config.env` and fails with "BakaSU is not at the pinned commit" when the checkout doesn't match. Confirm the pin exists in the BakaSU repository. The SuSFS pin is `SUSFS_REPO_PIN`, in the same file.
+### BakaSU is not at the resolved commit
+`scripts/ksu.sh` resolves `KSU_REPO_PIN` (`main` by default) to one commit at the start of the run, then fails with "BakaSU is not at <commit>" if setup didn't check out that commit. Look at the "BakaSU resolved to" line in the log, and confirm that commit exists in the BakaSU repository. The SuSFS pin is `SUSFS_REPO_PIN`, in the same file.
 
 ### `kernel_version mismatch`
 The `kernel_version` in `devices/<name>.json` doesn't match the kernel's `Makefile`. The preflight step checks this before the build starts. Update the device file.

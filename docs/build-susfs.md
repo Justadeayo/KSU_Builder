@@ -33,7 +33,7 @@ Actions → *BakaSU Kernel Build* → *Run workflow*. Leave every input empty to
 3. **notify:** sends one Telegram start message, and one finish message with the files, or a failure message.
 4. **release:** runs only with `create_release`.
 
-BakaSU is pinned in `config.env`. A patch that doesn't apply to the kernel tree fails the build, and its rejects are uploaded as an artifact.
+BakaSU follows `main` through `KSU_REPO_PIN` in `config.env`, so each run uses the latest commit. SuSFS is pinned to a commit in the same file. A patch that doesn't apply to the kernel tree fails the build, and its rejects are uploaded as an artifact.
 
 ---
 
@@ -65,7 +65,7 @@ See [Secrets and outputs](secrets-and-outputs.md) for the full list.
 | :--- | :--- |
 | `devices/<name>.json` | Device settings: kernel repo, branch, defconfig, kernel version, kernel name, Clang, AnyKernel3 |
 | `devices/patches/` | Per-device patches, such as the cmdline SUSFS port |
-| `config.env` | Pinned BakaSU and SUSFS commits |
+| `config.env` | BakaSU branch (`main`) and the pinned SUSFS commit |
 | `patches/ksu/` | KernelSU patches applied by `scripts/ksu-fetch.sh` |
 | `scripts/` | `resolve-device.py`, `master.sh`, `ksu.sh`, `compile.sh`, `notify.sh`, and the rest |
 | `docker/build-env/` | The build image definition |
