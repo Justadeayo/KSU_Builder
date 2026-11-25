@@ -45,15 +45,17 @@ on:
         type: string
         default: ""
       clang_version:
-        description: "Clang version, e.g. r596125. Empty = from device JSON"
+        description: "Clang version. default = device JSON (r596125)"
         required: false
-        type: string
-        default: ""
-      clang_branch:
-        description: "googlesource branch for the Clang version. Empty = from device JSON"
-        required: false
-        type: string
-        default: ""
+        type: choice
+        options:
+          - default
+          - r596125
+          - r614150
+          - r584948
+          - r547379
+          - 3289846
+        default: default
       ak3_repo:
         description: "AnyKernel3 repo URL. Empty = from device JSON"
         required: false
@@ -105,7 +107,6 @@ jobs:
           IN_KERNEL_VERSION: ${{ inputs.kernel_version }}
           IN_DEFCONFIG: ${{ inputs.defconfig_name }}
           IN_CLANG_VERSION: ${{ inputs.clang_version }}
-          IN_CLANG_BRANCH: ${{ inputs.clang_branch }}
           IN_AK3_REPO: ${{ inputs.ak3_repo }}
           IN_AK3_BRANCH: ${{ inputs.ak3_branch }}
         run: |

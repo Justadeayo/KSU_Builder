@@ -32,7 +32,6 @@ overrides = {
     "kernel_version": "IN_KERNEL_VERSION",
     "defconfig":      "IN_DEFCONFIG",
     "clang_version":  "IN_CLANG_VERSION",
-    "clang_branch":   "IN_CLANG_BRANCH",
     "ak3_repo":       "IN_AK3_REPO",
     "ak3_branch":     "IN_AK3_BRANCH",
 }
@@ -40,6 +39,8 @@ overrides = {
 applied = []
 for key, env_name in overrides.items():
     value = os.environ.get(env_name, "").strip()
+    if value == "default":
+        value = ""
     if value:
         cfg[key] = value
         applied.append(key)

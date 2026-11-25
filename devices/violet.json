@@ -8,7 +8,6 @@
     "kernel_name": "XCalibur-XF",
 
     "clang_version": "r596125",
-    "clang_branch": "main-kernel",
 
     "ak3_repo": "https://github.com/Justadeayo/AnyKernel3.git",
     "ak3_branch": "master",

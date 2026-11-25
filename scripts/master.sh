@@ -41,6 +41,22 @@ cmd_deps() {
 # ---------------------------------------------------------------- clang
 # Clang versions live on different googlesource refs. Try them in order and
 # keep the first one that downloads. clang-r416183b comes from LineageOS.
+# Preferred googlesource ref per Clang version, tried first. Versions not
+# listed here go straight through DEFAULT_REFS.
+declare -A CLANG_REF=(
+    [clang-r596125]="heads/main-kernel"
+    [clang-r614150]="heads/main-kernel"
+    [clang-r584948]="heads/main-kernel"
+)
+
+# Fallback chain, tried in order for every version.
+DEFAULT_REFS=(
+    "heads/main-kernel"
+    "tags/android-14.0.0_r33"
+    "heads/android16-qpr2-release"
+    "heads/main"
+)
+
 cmd_clang() {
     local ver="${1:?usage: clang <clang-version> [dest-dir]}"
     local dest="${2:-toolchains/${ver}}"
@@ -58,9 +74,12 @@ cmd_clang() {
             https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git \
             "$dest"
     else
+        local refs=("${DEFAULT_REFS[@]}")
+        if [ -n "${CLANG_REF[$ver]:-}" ]; then
+            refs=("${CLANG_REF[$ver]}" "${DEFAULT_REFS[@]}")
+        fi
         local ref tarball="${ver}.tar.gz" found=0
-        for ref in "heads/main-kernel" "tags/android-14.0.0_r33" \
-                   "heads/android16-qpr2-release" "heads/main"; do
+        for ref in "${refs[@]}"; do
             log "trying ${ref} for ${ver}"
             if curl -fL --retry 8 --retry-delay 20 --retry-all-errors \
                     --connect-timeout 30 -o "$tarball" "${ANDROID_SRC}/${ref}/${ver}.tar.gz"; then
