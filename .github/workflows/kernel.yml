@@ -157,11 +157,7 @@ jobs:
           echo "KERNEL_VER=$(cd kernel && make kernelversion)" >> $GITHUB_ENV
 
           BRANCH="${{ inputs.branch || 'master' }}"
-          if [[ "${{ inputs.ksu_type }}" == "Uni-SU" ]]; then
-            git clone --depth=1 https://github.com/Justadeayo/sKernelSU.git -b "$BRANCH" KSU_REPO
-          else
-            git clone --depth=1 https://github.com/tiann/KernelSU.git -b main KSU_REPO
-          fi
+          git clone --depth=1 https://github.com/tiann/KernelSU.git -b main KSU_REPO
 
           cd KSU_REPO
           KSU_LOG=$(git log -1 --format="%s" | tr -d '"\n')
@@ -183,11 +179,7 @@ jobs:
           fi
       - name: Setup KernelSU & Configure Defconfig
         run: |
-          case "${{ inputs.ksu_type }}" in
-            Uni-SU) URL="https://raw.githubusercontent.com/Justadeayo/sKernelSU/refs/heads/${{ inputs.branch || 'master' }}/kernel/setup.sh" ;;
-            *)      URL="" ;;
-          esac
-          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}" "$URL" "${{ inputs.branch || 'master' }}"
+          bash scripts/master.sh ksu-setup kernel "${{ inputs.ksu_type }}" "arch/arm64/configs/${{ inputs.defconfig_name }}"
       - name: Reset ccache statistics
         run: bash scripts/ccache-summary.sh reset
 

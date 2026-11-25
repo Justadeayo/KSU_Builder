@@ -8,7 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 KDIR="${1:-}"
-PATCH_DIR="${2:-${SCRIPT_DIR}/../patches/ksu}"
+PATCH_DIRS=("${@:2}")
+[ "${#PATCH_DIRS[@]}" -gt 0 ] || PATCH_DIRS=("${SCRIPT_DIR}/../patches/ksu")
 UPSTREAM_URL="${KSU_UPSTREAM_URL:-https://github.com/tiann/KernelSU.git}"
 UPSTREAM_REF="${KSU_UPSTREAM_REF:-main}"
 
@@ -45,20 +46,23 @@ UPSTREAM_SHA="$(git -C "$SRC" rev-parse HEAD)"
 log "Upstream ${UPSTREAM_REF} is at ${UPSTREAM_SHA}"
 
 shopt -s nullglob
-PATCHES=("${PATCH_DIR%/}"/*.patch)
+PATCHES=()
+for d in "${PATCH_DIRS[@]}"; do
+    PATCHES+=("${d%/}"/*.patch)
+done
 shopt -u nullglob
 if [ "${#PATCHES[@]}" -eq 0 ]; then
     if [ "${KSU_ALLOW_NO_PATCHES:-0}" = "1" ]; then
-        warn "no patches in ${PATCH_DIR}; building plain upstream ${UPSTREAM_SHA} (KSU_ALLOW_NO_PATCHES=1)"
+        warn "no patches in ${PATCH_DIRS[*]}; building plain upstream ${UPSTREAM_SHA} (KSU_ALLOW_NO_PATCHES=1)"
     else
-        die "no patches in ${PATCH_DIR}. Refusing to build plain upstream; set KSU_ALLOW_NO_PATCHES=1 to allow it."
+        die "no patches in ${PATCH_DIRS[*]}. Refusing to build plain upstream; set KSU_ALLOW_NO_PATCHES=1 to allow it."
     fi
 else
-    log "Applying ${#PATCHES[@]} patch(es) from ${PATCH_DIR} to the working tree"
+    log "Applying ${#PATCHES[@]} patch(es) from ${PATCH_DIRS[*]} to the working tree"
     for p in "${PATCHES[@]}"; do
         if ! git -C "$SRC" apply --3way "$(realpath "$p")" 2>"$WORK_ERR"; then
             cat "$WORK_ERR" >&2
-            die "patch $(basename "$p") does not apply to upstream ${UPSTREAM_SHA}. Rebase it onto the new upstream and update ${PATCH_DIR}."
+            die "patch $(basename "$p") does not apply to upstream ${UPSTREAM_SHA}. Rebase it onto the new upstream and update the patch directories."
         fi
         log "  applied $(basename "$p")"
     done

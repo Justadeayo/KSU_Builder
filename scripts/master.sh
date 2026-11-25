@@ -135,12 +135,7 @@ cmd_ksu_setup() {
             bash "${script_dir}/ksu-fetch.sh" "$kdir"
             ;;
         Uni-SU)
-            [ -n "$url" ] || die "Uni-SU needs a setup.sh url"
-            cd "$kdir"
-            curl -LSs "$url" > setup.sh
-            sed -i 's|backslashxx/KernelSU|Justadeayo/KernelSU|g' setup.sh
-            bash setup.sh "$branch"
-            cd - >/dev/null
+            bash "${script_dir}/ksu-fetch.sh" "$kdir" "${script_dir}/../patches/ksu" "${script_dir}/../patches/uni-su"
             ;;
         *) die "unknown ksu-type: $ksu_type" ;;
     esac
