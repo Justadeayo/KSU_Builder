@@ -4,7 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       device_codename:
-        description: "Device (devices/<name>.json). Empty = violet"
+        description: "Device to build (Codename)."
+        required: false
+        type: choice
+        options:
+          - violet
+        default: violet
+      kernel_name:
+        description: "Kernel name for the zip name. Empty = from device JSON"
         required: false
         type: string
         default: ""
@@ -19,10 +26,22 @@ on:
         type: string
         default: ""
       defconfig_name:
-        description: "Defconfig target, e.g. vendor/xcalibur-perf_defconfig. Empty = from device JSON"
+        description: "Defconfig target. Empty = from device JSON"
         required: false
         type: string
         default: ""
+      clang_version:
+        description: "Clang version. default = device JSON (r596125)"
+        required: false
+        type: choice
+        options:
+          - default
+          - r596125
+          - r614150
+          - r584948
+          - r547379
+          - 3289846
+        default: default
       ksu_type:
         description: "KernelSU or None"
         required: false
@@ -45,6 +64,10 @@ on:
         required: false
         type: string
         default: ""
+      kernel_name:
+        required: false
+        type: string
+        default: ""
       kernel_source:
         required: false
         type: string
@@ -54,6 +77,10 @@ on:
         type: string
         default: ""
       defconfig_name:
+        required: false
+        type: string
+        default: ""
+      clang_version:
         required: false
         type: string
         default: ""
@@ -91,9 +118,11 @@ jobs:
         name: Resolve device config (inputs over JSON)
         env:
           DEVICE: ${{ inputs.device_codename || 'violet' }}
+          IN_KERNEL_NAME: ${{ inputs.kernel_name }}
           IN_KERNEL_REPO: ${{ inputs.kernel_source }}
           IN_KERNEL_BRANCH: ${{ inputs.kernel_branch }}
           IN_DEFCONFIG: ${{ inputs.defconfig_name }}
+          IN_CLANG_VERSION: ${{ inputs.clang_version }}
         run: |
           set -euo pipefail
           RESOLVED="$(python3 scripts/resolve-device.py devices)"
