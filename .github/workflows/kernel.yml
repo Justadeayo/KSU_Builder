@@ -233,6 +233,26 @@ jobs:
       - name: Notify finish
         run: bash scripts/notify.sh finish "$DEVICE" "$KERNEL_NAME" "$CLANG" "$EPOCH" "kernel_out/*.zip:$KSU_LABEL" "manager_apk/*.apk:Manager APK"
 
+  notify_failed:
+    needs:
+      - config
+      - notify_start
+      - build
+    if: ${{ always() && needs.build.result == 'failure' }}
+    runs-on: ubuntu-24.04
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
+      KERNEL_NAME: ${{ fromJSON(needs.config.outputs.resolved).kernel_name }}
+      CLANG: ${{ fromJSON(needs.config.outputs.resolved).clang_version }}
+      EPOCH: ${{ needs.notify_start.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Notify failure
+        run: bash scripts/notify.sh fail "$DEVICE" "$KERNEL_NAME" "$CLANG" "$EPOCH" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
   cache-cleanup:
     needs:
       - config
