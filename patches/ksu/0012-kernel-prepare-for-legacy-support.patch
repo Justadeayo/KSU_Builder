@@ -555,7 +555,7 @@ index 00000000..e883b95f
 --- /dev/null
 +++ b/kernel/feature/kernel_umount.c
 @@ -0,0 +1,112 @@
-+static bool ksu_kernel_umount_enabled __read_mostly = true;
++bool ksu_kernel_umount_enabled __read_mostly = true;
 +
 +static int kernel_umount_feature_get(u64 *value)
 +{

@@ -1845,7 +1845,7 @@ index 00000000..7fc37efe
 +#ifndef __KSU_H_HOSTSREDIRECT
 +#define __KSU_H_HOSTSREDIRECT
 +
-+static bool ksu_kernel_umount_enabled __read_mostly;
++extern bool ksu_kernel_umount_enabled;
 +
 +static __always_inline void ksu_hosts_file_redirect(const char __user *filename, int flags, int *fd_ptr)
 +{
