@@ -44,12 +44,11 @@ on:
         default: "clang-r596125"
 
       ksu_type:
-        description: Root manager (KernelSU tracks tiann/KernelSU main; Uni-SU also accepts other managers)
+        description: Root manager (KernelSU tracks tiann/KernelSU main)
         required: true
         type: choice
         options:
           - KernelSU
-          - Uni-SU
           - None
         default: KernelSU
 

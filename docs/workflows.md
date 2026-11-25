@@ -88,13 +88,13 @@ Each section lists a workflow's purpose, triggers, inputs and jobs. For the shar
 | `kernel_branch` | String | Kernel branch | required |
 | `defconfig_name` | String | Defconfig path under `arch/arm64/configs/` | required |
 | `device_codename` | String | Used in the zip name and AnyKernel3 | `violet` |
-| `ksu_type` | Choice | `None`, `KernelSU`, `Uni-SU` | `KernelSU` |
+| `ksu_type` | Choice | `None`, `KernelSU` | `KernelSU` |
 | `branch` | String | Driver repo branch, for both the clone and `setup.sh` | `master` |
 | `BUILD_COMMIT` | String | Note added to the build message | `Synced with upstream changes 💯` |
 | `upload_raw_outputs` | Boolean | Also upload `Image`, `Image.gz`, `Image.gz-dtb`, `dtb.img`, `dtb` and `dtbo.img` as a `kernel-raw-outputs` artifact | `false` |
 | `telegram_chat_id`, `telegram_bot_token` | String | Overrides for the secrets | secret fallback |
 
-- **Root choice:** `ksu_type` picks the root setup and the zip label. `KernelSU` uses `Justadeayo/KernelSU` and `Uni-SU` uses `Justadeayo/sKernelSU`, both on `branch`. `None` skips root setup but still clones the KernelSU repo for its commit message.
+- **Root choice:** `ksu_type` picks the root setup and the zip label. `KernelSU` uses `Justadeayo/KernelSU` on `branch`. `None` skips root setup but still clones the KernelSU repo for its commit message.
 - **Jobs:** `notify_start`, `Kernel_CI` (runs in the build image; build and zip), `Dispatch` (sends the finish message with the zip), and `Cache_Cleanup`.
 - **Clang:** `clang-r596125` comes from the image. Any other `clang_version` is downloaded on the run.
 

@@ -22,7 +22,7 @@ bash scripts/master.sh help
 | :--- | :--- |
 | `deps` | Removes stale apt sources, then installs the build packages (one list for every workflow). The build image in `docker/build-env/` installs the same list, so the build workflows no longer call this. |
 | `clang` | Downloads and extracts a Clang version into `toolchains/<version>`. Tries the `main-kernel`, `android-14`, `android16-qpr2` and `main` googlesource refs in turn. `clang-r416183b` is cloned from LineageOS. Fails if `bin/clang` is missing afterwards. Skips the download if Clang is already there. |
-| `ksu-setup` | Runs a KernelSU or Uni-SU `setup.sh` in the kernel tree, rewrites the fork owner to Justadeayo, and appends the root options to the defconfig. `Uni-SU` is the sKernelSU driver, built without SuSFS. `None` does nothing. The caller gives the `setup.sh` URL and an optional branch (default `master`). |
+| `ksu-setup` | Runs the KernelSU setup in the kernel tree (`KernelSU`), applies SuSFS, and appends the root options to the defconfig. `None` does nothing. |
 | `compile` | Exports the Clang and ccache environment, runs `make` and `olddefconfig`, and builds with the log written to the given file. With `REQUIRE_KSU_TAMPER=true` it fails when the final `.config` lost `CONFIG_KSU_TAMPER_SYSCALL_TABLE`. |
 | `prune-ccache` | Deletes all but the newest ccache entry for a key. |
 | `anykernel` | Copies the kernel image and DTB files from `boot-dir` into an AnyKernel3 folder, fills in the device, Clang version and build date, and zips the result. Prints the zip name on stdout. The `label` sets the zip name. `None`, `NonKSU` and `nsu` turn off `ksu_supported`; any other label turns it on. |

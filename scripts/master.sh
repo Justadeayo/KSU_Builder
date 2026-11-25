@@ -13,7 +13,7 @@
 #   bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
 #   bash scripts/master.sh prune-ccache <cache-key>
 #   bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
-#       label: KernelSU, Uni-SU, or None/NonKSU (no root). Prints the zip name on stdout.
+#       label: KernelSU, or None/NonKSU (no root). Prints the zip name on stdout.
 #
 #   AK3_REPO, AK3_BRANCH                  optional; default Justadeayo/AnyKernel3 master
 #
@@ -144,10 +144,6 @@ cmd_ksu_setup() {
             bash "${script_dir}/ksu-fetch.sh" "$kdir"
             susfs_apply "$kdir" "$defconfig" "$script_dir"
             ;;
-        Uni-SU)
-            bash "${script_dir}/ksu-fetch.sh" "$kdir" "${script_dir}/../patches/ksu" "${script_dir}/../patches/uni-su"
-            susfs_apply "$kdir" "$defconfig" "$script_dir"
-            ;;
         *) die "unknown ksu-type: $ksu_type" ;;
     esac
 
@@ -160,7 +156,7 @@ cmd_ksu_setup() {
         echo "CONFIG_OVERLAY_FS=y"
         # Needed for the KernelSU driver to get root on this kernel
         [ "$ksu_type" = "KernelSU" ] && echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"
-        if [ "$ksu_type" = "KernelSU" ] || [ "$ksu_type" = "Uni-SU" ]; then
+        if [ "$ksu_type" = "KernelSU" ]; then
             for opt in CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_PATH CONFIG_KSU_SUSFS_SUS_MOUNT \
                        CONFIG_KSU_SUSFS_SUS_KSTAT CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_ENABLE_LOG \
                        CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply the pinned SuSFS kernel side to a kernel tree (Uni-SU pipeline).
+# Apply the pinned SuSFS kernel side to a kernel tree for KernelSU.
 # Usage: susfs-setup.sh <kernel-dir> <kernel-version> <device>
 set -euo pipefail
 
