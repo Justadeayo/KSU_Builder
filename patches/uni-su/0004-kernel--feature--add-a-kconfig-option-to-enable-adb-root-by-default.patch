@@ -1,0 +1,45 @@
+From: Justus <justadeayo@gmail.com>
+Subject: [PATCH] kernel: feature: add a kconfig option to enable adb root by default
+
+Signed-off-by: Justus <justadeayo@gmail.com>
+---
+ kernel/Kconfig            | 7 +++++++
+ kernel/feature/adb_root.c | 4 ++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/kernel/Kconfig b/kernel/Kconfig
+index 67ff0d23..53d9c037 100644
+--- a/kernel/Kconfig
++++ b/kernel/Kconfig
+@@ -63,6 +63,13 @@ config KSU_FEATURE_ADBROOT
+ 	help
+ 	  Build KernelSU's adb root feature.
+ 
++config KSU_FEATURE_ADBROOT_DEFAULT_ENABLE
++	bool "Enable KernelSU ADB Root feature by default"
++	depends on KSU_FEATURE_ADBROOT
++	default n
++	help
++	  Turn KernelSU's adb root feature on by default.
++
+ config KSU_HOSTSREDIRECT
+ 	bool "/system/etc/hosts redirection"
+ 	depends on KSU
+diff --git a/kernel/feature/adb_root.c b/kernel/feature/adb_root.c
+index 2049a4e7..169b2e92 100644
+--- a/kernel/feature/adb_root.c
++++ b/kernel/feature/adb_root.c
+@@ -1,6 +1,10 @@
+ #ifdef CONFIG_KSU_FEATURE_ADBROOT
+ 
++#ifdef CONFIG_KSU_FEATURE_ADBROOT_DEFAULT_ENABLE
++static bool ksu_adb_root __read_mostly = true;
++#else
+ static bool ksu_adb_root __read_mostly = false;
++#endif /* CONFIG_KSU_FEATURE_ADBROOT_DEFAULT_ENABLE */
+ 
+ static inline long is_exec_adbd(const char __user **filename_user)
+ {
+-- 
+2.43.0
+
