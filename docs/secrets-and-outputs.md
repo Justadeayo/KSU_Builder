@@ -1,59 +1,57 @@
 # Secrets and outputs
 
-[← Home](../README.md) · [Workflows](workflows.md) · [Build a SUSFS kernel](build-susfs.md) · [Master script](master-script.md) · **Secrets and outputs** · [Forking](forking.md) · [Troubleshooting](troubleshooting.md) · [History](history.md)
-
----
-
 ## Contents
 
 - [Repository secrets](#repository-secrets)
 - [Keystore for release-signed Manager builds](#keystore-for-release-signed-manager-builds)
 - [Where the outputs go](#where-the-outputs-go)
 
+---
+
 ## Repository secrets
 
-Add these under **Settings** → **Secrets and variables** → **Actions**.
+Set these under *Settings → Secrets and variables → Actions*. Workflows read them directly; none of them is a workflow input.
 
-| Secret | Used by | Description |
+| Secret | Used by | Needed for |
 | :--- | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN` | Telegram steps | Bot token from [@BotFather](https://t.me/botfather) |
-| `TELEGRAM_CHAT_ID` | Telegram steps | Chat or channel ID, e.g. `-1001234567890` |
-| `SYNC_PAT` | `sync.yml` | Personal access token with repo and workflow permissions |
+| `TELEGRAM_BOT_TOKEN` | `bakasu.yml`, `kernelsu.yml` | Telegram start, finish and failure messages |
+| `TELEGRAM_CHAT_ID` | `bakasu.yml`, `kernelsu.yml` | The chat that receives the messages |
+| `RELEASE_KEYSTORE_BASE64` | `build-manager.yml` | Base64 of the release keystore, for release-signed Manager APKs |
+| `RELEASE_KEYSTORE_PASSWORD` | `build-manager.yml` | Keystore password |
+| `RELEASE_KEY_ALIAS` | `build-manager.yml` | Key alias inside the keystore |
+| `RELEASE_KEY_PASSWORD` | `build-manager.yml` | Key password |
+| `BOT_TOKEN` | `build-manager.yml` | Checked before a step runs; set it only if that step needs it |
+| `GITHUB_TOKEN` | `build-env.yml` | Provided by GitHub. Used to push the build image |
 
-To get the chat ID, message your bot and check the update log, or use [@userinfobot](https://t.me/userinfobot).
-
-If the Telegram secrets aren't set, the Telegram steps are skipped and the build still runs. `build.yml` also takes the token and chat ID as inputs, which override the secrets for that run.
-
-## Keystore for release-signed Manager builds
-
-Non-PR builds use the dummy keystore in `build-manager.yml`. To sign with your own key:
-
-1. Create a keystore file.
-2. Encode it: `base64 -w 0 my.keystore > encoded.txt`.
-3. Add it as a secret, for example `KEYSTORE_FILE`.
-4. Update `build-manager.yml` to use it.
-
-## Where the outputs go
-
-**Releases:** created by `release.yml`, or by `create_release` in `build.yml`.
-
-**Actions artifacts:** open the run and scroll to **Artifacts**.
-
-| Artifact | Produced by |
-| :--- | :--- |
-| `manager`, `manager-gradle`, `ksud-*`, `mappings` | `build-manager.yml` |
-| `kernel-zip` | `automated.yml`, `kernel.yml` |
-| `kernel-raw-outputs` | `kernel.yml` (only with `upload_raw_outputs`) |
-| `xcalibur-xf-<device>-<variant>` | `build.yml` |
-| `debug-<device>-<variant>` | `build.yml` |
-| `xcalibur-xf-<device>-ksu-versions` | `build.yml` (`ksu` only) |
-| `xcalibur-xf-<device>-<variant>-rejects` | `build.yml` (failed builds only) |
-
-**Telegram:**
-- The kernel zip is sent on success. A failed build sends the last 35 log lines.
-- `Dispatch` sends the Manager APK in the two workflows that build it.
-- `release.yml` sends no Telegram message. Its build step does.
+`release.yml` and `kernelsu.yml` pass secrets to called workflows with `secrets: inherit`, so the secrets above only need to be set once on the repository.
 
 ---
 
-[← Master script](master-script.md) · [Next: Forking →](forking.md)
+## Keystore for release-signed Manager builds
+
+`build-manager.yml` decodes `RELEASE_KEYSTORE_BASE64` and needs the three other keystore secrets to sign the APK. If `RELEASE_KEYSTORE_BASE64` is missing, the build stops with an error.
+
+To create the base64 value:
+
+```
+base64 -w0 release.keystore > release.keystore.b64
+```
+
+Paste the contents of `release.keystore.b64` into `RELEASE_KEYSTORE_BASE64`, then delete the local copies. Never commit the keystore or its base64 form.
+
+---
+
+## Where the outputs go
+
+| Output | Produced by | Where it ends up |
+| :--- | :--- | :--- |
+| Kernel zip | `bakasu.yml`, `kernelsu.yml` | Artifact `kernel-zip` (kernelsu), `xcalibur-xf-<device>-<variant>` (bakasu), and the Telegram finish message |
+| Manager APK | `build-manager.yml` | Artifact `manager`, attached to the finish message when `build_manager` is set |
+| `ksud` binaries | `build-manager.yml` | Artifact `ksud-<target>` |
+| Manager Gradle outputs | `build-manager.yml` | Artifact `manager-gradle` |
+| Debug logs | `bakasu.yml` | Artifact `debug-<device>-<variant>` |
+| Patch rejects | `bakasu.yml` | Artifact `xcalibur-xf-<device>-<variant>-rejects` |
+| Version info | `bakasu.yml` | Artifact `xcalibur-xf-<device>-<variant>-versions` |
+| GitHub Release | `release.yml`, and `bakasu.yml` with `create_release` | Release page, with the zip and the Manager APK |
+
+`scripts/notify.sh` sends the Telegram messages: one start message, one finish message with the files once the build succeeds, and a failure message if it doesn't.

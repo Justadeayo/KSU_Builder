@@ -13,12 +13,12 @@
 
 ## Credits
 
-- [yureixen](https://github.com/yureixen/zincore-forge) for Zincore Forge, whose framework `build.yml` is based on. Zincore Forge is licensed under GPL-2.0.
+- [yureixen](https://github.com/yureixen/zincore-forge) for Zincore Forge, whose framework `bakasu.yml` is based on. Zincore Forge is licensed under GPL-2.0.
 
 ## License
 
 - The license in [`LICENSE`](../LICENSE) covers the files written for this repository.
-- Files copied or adapted from [Zincore Forge](https://github.com/yureixen/zincore-forge) are licensed under **GPL-2.0**. Each has a header comment, and the GPL-2.0 text is in [`LICENSE-GPL-2.0`](../LICENSE-GPL-2.0). These are `scripts/common.sh`, `compile.sh`, `env.sh`, `ksu.sh`, `variant.sh`, `config.env`, `.github/workflows/build.yml`.
+- Files copied or adapted from [Zincore Forge](https://github.com/yureixen/zincore-forge) are licensed under **GPL-2.0**. Each has a header comment, and the GPL-2.0 text is in [`LICENSE-GPL-2.0`](../LICENSE-GPL-2.0). These are `scripts/common.sh`, `compile.sh`, `env.sh`, `ksu.sh`, `variant.sh`, `config.env`, `.github/workflows/bakasu.yml`.
 
 ## Support
 
@@ -28,6 +28,7 @@ Report problems through GitHub Issues. Include the workflow name, the device, th
 
 | Version | Date | Notes | Branch |
 | :--- | :--- | :--- | :--- |
+| **3.1** | 2026-11-25 | Two build workflows: `bakasu.yml` (BakaSU with SUSFS, optional `nsu` variant) and `kernelsu.yml` (KernelSU, SUSFS toggle on by default, optional Manager APK). Removed `automated.yml`, `kernel.yml`, `build.yml`, `build-custom.yml`, `sync.yml` and the Uni-SU variant. `release.yml` calls `kernelsu.yml` with `build_manager: true`. Every build input is optional and an empty input uses `devices/<device>.json`. Inputs go through `env:` instead of being pasted into shell code. KernelSU builds with SUSFS get `-SUSFS` in the kernel and zip names. Docs refreshed to match. | `dev` |
 | **3.0** | 2026-11-15 | Merged the kernel workflows into `kernel.yml` (Kernel Build), based on the former `kernel_build.yml`. Its raw-image upload is now the optional `upload_raw_outputs` input, and `kernel.yml` now clones the KernelSU repo for `None` as `kernel_build.yml` did, so `None` builds no longer fail at the commit step. Merged `build-custom.yml` into `build.yml` (Build SUSFS Kernel), with every input optional. The notifications and the ccache cleanup now use the resolved device and inputs, and `scripts/resolve-device.py` resolves the config once. Removed `Kernel_&_Manager_build.yml`, since a Manager build isn't needed for Uni-SU kernels, which work with the KernelSU Manager. | `dev` |
 | **2.9** | 2026-11-07 | Telegram messages moved to `scripts/notify.sh`, with one start message per run and one finish message with the files once every selected build succeeds. Start, failure and sync messages were removed from the workflows. `build.yml` and `build-custom.yml` now start one message, build BakaSU, and build non-KSU only when `build_nonksu` is set. | `dev` |
 | **2.8** | 2026-11-06 | Kernel ccache is now one shared cache per device and kernel branch, so every variant and every workflow on branch 17 reuses it. Save runs at the end of each job, and cleanup keeps only the newest entry. Restore and save live in `.github/actions/ccache-restore` and `ccache-save`. Clang comes from the build image only. Removed the BuildKit image cache and the Rust cache from the Manager build, and the Gradle cache is keyed on the Gradle files. | `dev` |

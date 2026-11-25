@@ -1,68 +1,52 @@
 # Master script
 
-[← Home](../README.md) · [Workflows](workflows.md) · [Build a SUSFS kernel](build-susfs.md) · **Master script** · [Secrets and outputs](secrets-and-outputs.md) · [Forking](forking.md) · [Troubleshooting](troubleshooting.md) · [History](history.md)
-
----
-
-`scripts/master.sh` holds the steps that the build workflows share: dependencies, Clang, KernelSU setup, compile, AnyKernel3 packaging and ccache cleanup. Telegram messages live in `scripts/notify.sh`. Workflows call it with one line instead of carrying their own copy.
+`scripts/master.sh` holds the steps the workflows share. Each workflow calls it with a command name and arguments.
 
 ## Commands
 
-```bash
-bash scripts/master.sh deps
-bash scripts/master.sh clang <clang-version> [dest-dir]
-bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> <setup-url>
-bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
-bash scripts/master.sh prune-ccache <cache-key>
-bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
-bash scripts/master.sh help
-```
+| Command | Arguments | What it does |
+| :--- | :--- | :--- |
+| `deps` | none | Installs the apt build packages |
+| `clang <version> <dir>` | Clang version, target directory | Downloads a Clang toolchain into `<dir>`. Used when the preinstalled one is missing |
+| `ksu-setup <kernel-dir> <ksu-type> <defconfig> [susfs]` | kernel dir, `KernelSU` or `None`, defconfig path, `true` or `false` | Fetches the KernelSU source and patches, applies SUSFS when `susfs` is `true`, and appends the kernel config options |
+| `compile <clang-dir> <defconfig> <kernel-dir> <log>` | Clang directory name, defconfig target, kernel dir, build log | Runs the kernel build and writes the log |
+| `anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin>` | boot dir, kernel name, device, `KernelSU` or `None`, Clang bin dir | Packages the kernel images into an AnyKernel3 zip and prints its name |
+| `prune-ccache <prefix>` | cache key prefix | Deletes older ccache entries under that prefix |
 
-| Command | What it does |
-| :--- | :--- |
-| `deps` | Removes stale apt sources, then installs the build packages (one list for every workflow). The build image in `docker/build-env/` installs the same list, so the build workflows no longer call this. |
-| `clang` | Downloads and extracts a Clang version into `toolchains/<version>`. Tries the `main-kernel`, `android-14`, `android16-qpr2` and `main` googlesource refs in turn. `clang-r416183b` is cloned from LineageOS. Fails if `bin/clang` is missing afterwards. Skips the download if Clang is already there. |
-| `ksu-setup` | Runs the KernelSU setup in the kernel tree (`KernelSU`), applies SuSFS, and appends the root options to the defconfig. `None` does nothing. |
-| `compile` | Exports the Clang and ccache environment, runs `make` and `olddefconfig`, and builds with the log written to the given file. With `REQUIRE_KSU_TAMPER=true` it fails when the final `.config` lost `CONFIG_KSU_TAMPER_SYSCALL_TABLE`. |
-| `prune-ccache` | Deletes all but the newest ccache entry for a key. |
-| `anykernel` | Copies the kernel image and DTB files from `boot-dir` into an AnyKernel3 folder, fills in the device, Clang version and build date, and zips the result. Prints the zip name on stdout. The `label` sets the zip name. `None`, `NonKSU` and `nsu` turn off `ksu_supported`; any other label turns it on. |
+`None` never applies SUSFS. A `KernelSU` build with `susfs` set to `false` leaves SUSFS out.
 
 ## Environment
 
-| Variable | Used by | Default |
-| :--- | :--- | :--- |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `scripts/notify.sh` | none. If either is missing, notifications are skipped and the build continues. |
-| `AK3_REPO`, `AK3_BRANCH` | `anykernel` | `https://github.com/Justadeayo/AnyKernel3.git`, `master` |
-| `REQUIRE_KSU_TAMPER` | `compile` | `false` |
+Commands read these from the calling workflow's `env:` block:
+
+- `CCACHE_DIR`, `CCACHE_MAXSIZE`, `CCACHE_BASEDIR`, `CCACHE_NOHASHDIR` for the compile step
+- `REQUIRE_KSU_TAMPER`, set from the root type, for the compile step
+- `GH_TOKEN` for `prune-ccache`
 
 ## Rules
 
-- `common.sh` provides `log`, `warn` and `die`. The master script sources it.
-- Logs go to stderr. Stdout carries only what a command is meant to return, such as the zip name from `anykernel`.
-- An unknown command exits with an error. Run `help` to see the list.
+- A missing argument stops the step with a usage message.
+- Workflows pass inputs through `env:`, never by pasting them into shell code.
+- A step belongs in `master.sh` when two or more workflows need it. Steps unique to one workflow stay in that workflow.
 
 ## Where each workflow uses it
 
 | Workflow | Commands used |
 | :--- | :--- |
-| `build.yml` | `prune-ccache` |
-| `automated.yml`, `kernel.yml` | `clang` (only for a Clang version the image lacks), `ksu-setup`, `compile`, `prune-ccache`, `anykernel` |
+| `bakasu.yml` | `clang`, `compile`, `anykernel`, `prune-ccache` |
+| `kernelsu.yml` | `clang`, `ksu-setup`, `compile`, `anykernel`, `prune-ccache` |
+| `build-manager.yml` | none (self-contained) |
+| `build-env.yml` | none (Dockerfile) |
+| `release.yml` | none (calls `kernelsu.yml`) |
 
 ## Still inline
 
-- The Manager APK delivery in `Dispatch` (`automated.yml`), because it depends on the artifacts each job produces.
-- The `build-manager.yml` steps.
-- The job-level setup each kernel workflow has: checkout, swap, ccache and the source clone. These need GitHub Actions' own steps or a composite action, so a shell script can't replace them.
-
----
-
-[← Build a SUSFS kernel](build-susfs.md) · [Next: Secrets and outputs →](secrets-and-outputs.md)
+Steps that only one workflow uses stay in that workflow: the Manager Gradle steps, the release-notes composition, and the artifact uploads.
 
 ## `scripts/notify.sh`
 
-Every Telegram message comes from this script. Workflows pass the same parameters each time, so a message's layout is set in one place.
+Sends the Telegram messages:
 
-- `notify.sh start <device> <kernel> <root> <compiler>` sends the start message. It prints the start time in epoch seconds, which the workflow passes to `finish`.
-- `notify.sh finish <device> <kernel> <compiler> <start-epoch> <path:label>...` sends the finish message with the total time and each file's size, then sends each file that exists. Missing paths are skipped.
-
-Failures are never announced. A finish message is sent only from a job that succeeded, so a failed build sends nothing.
+- `start <device> <kernel-name> <label> <clang>` prints the start timestamp, which the finish message needs.
+- `finish <device> <kernel-name> <clang> <epoch> <glob:label>...` sends the finish message and attaches the matching files.
+- `fail <device> <kernel-name> <clang> <epoch> <run-url>` sends the failure message.

@@ -1,25 +1,27 @@
 # Forking
 
-[← Home](../README.md) · [Workflows](workflows.md) · [Build a SUSFS kernel](build-susfs.md) · [Master script](master-script.md) · [Secrets and outputs](secrets-and-outputs.md) · **Forking** · [Troubleshooting](troubleshooting.md) · [History](history.md)
+These workflows hardcode several values for `Justadeayo`. Change them before you run the workflows in your own fork. Nothing else needs to change for a basic build.
 
----
+## Hardcoded values
 
-If you fork this repository for your own kernel or device, replace these hardcoded values.
-
-| File | Value | Replace with |
+| File | Value | Change it to |
 | :--- | :--- | :--- |
-| `.github/workflows/automated.yml` | `Justadeayo/KSU_Builder/.github/workflows/build-manager.yml@dev` | Your username, repo and branch |
-| `.github/workflows/automated.yml` | `KERNEL_SOURCE`, `KERNEL_BRANCH`, `DEFCONFIG_NAME` | Your device's kernel repo, branch and defconfig |
-| `.github/workflows/kernel.yml` | `Justadeayo/KernelSU`, `Justadeayo/AnyKernel3` | Your forks |
-| `scripts/master.sh` | `AK3_REPO`, `AK3_BRANCH` defaults | Your AnyKernel3 fork |
-| `.github/workflows/release.yml` | Tag prefix and git identity | Your tag prefix and git identity |
-| `.github/workflows/sync.yml` | `Justadeayo/KernelSU`, `Justadeayo/KSU_Builder` | Your repos |
-| `.github/workflows/build-manager.yml` | `Justadeayo/KernelSU` checkouts and the repository patch | Your KernelSU repo |
-| `devices/violet.json` | `kernel_repo`, `kernel_branch`, `defconfig`, `clang_version`, `clang_branch`, `ak3_repo` | Your device's values |
-| `config.env` | `KSU_REPO_URL` and `KSU_REPO_PIN`, `SUSFS_REPO_URL` and `SUSFS_REPO_PIN` | Your pins. Update them only after testing. |
+| `devices/violet.json` | `kernel_repo`, `ak3_repo` (`Justadeayo/android_kernel_xiaomi_violet`, `Justadeayo/AnyKernel3`) | Your kernel source and AnyKernel3 fork, or leave them and override per run |
+| `scripts/master.sh` | `AK3_REPO` default (`Justadeayo/AnyKernel3`) | Your AnyKernel3 fork, or set `AK3_REPO` in the workflow env |
+| `.github/workflows/build-env.yml` | `IMAGE` (`ghcr.io/justadeayo/xcalibur-build-env`) | Your GHCR path. Also update the image name in `bakasu.yml` and `kernelsu.yml` |
+| `.github/workflows/bakasu.yml`, `kernelsu.yml` | Build image `ghcr.io/justadeayo/xcalibur-build-env:ubuntu-24.04-clang-r596125` | Same as above |
+| `.github/workflows/build-manager.yml` | `repository: 'Justadeayo/KSU_Builder'` (three checkouts) | Your fork, e.g. `<you>/KSU_Builder` |
+| `.github/workflows/release.yml` | Git identity for the tag (`Justus`, `Justadeayo@users.noreply.github.com`) and the release credits line | Your name and email |
+| `scripts/*.sh` headers | Copyright comments referencing `Justadeayo/KSU_Builder` | Your fork name, if you keep the headers |
 
-`build.yml` can override the `devices/violet.json` values per run with its inputs, so you don't need to edit the JSON for a one-off build.
+## Secrets and variables
 
----
+Set the secrets listed in [Secrets and outputs](secrets-and-outputs.md) on your fork. The build image is pulled from GHCR, so make the package public or log in with a token that can read it.
 
-[← Secrets and outputs](secrets-and-outputs.md) · [Next: Troubleshooting →](troubleshooting.md)
+## Checklist
+
+1. Fork the repo and set the secrets.
+2. Change the values in the table above.
+3. Run *Build Env Image* once so the build image exists.
+4. Run *KernelSU Kernel Build* with the defaults. It should build violet and send the Telegram messages.
+5. Run *BakaSU Kernel Build* the same way to check the BakaSU path.

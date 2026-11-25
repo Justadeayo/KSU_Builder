@@ -1,6 +1,8 @@
 # KSU_Builder
 
-GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, and the KernelSU Manager app. The current target is the Xiaomi Redmi Note 7 Pro (`violet`) with the XCalibur-XF kernel.
+**Version 3.1**
+
+GitHub Actions workflows for building Android kernels with KernelSU, SUSFS (through BakaSU), and the KernelSU Manager app. Builds default to the Xiaomi Redmi Note 7 Pro (`violet`) with the XCalibur-XF kernel. Other devices are added as `devices/<name>.json` files.
 
 > **Use with caution and at your own risk.** These workflows are for testing, evaluation and customization. Check compatibility with your device before flashing anything, and keep a working boot image or kernel zip somewhere safe. See [`LICENSE`](LICENSE) for the full terms.
 
@@ -11,7 +13,7 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 | Page | What's in it |
 | :--- | :--- |
 | [Workflows](docs/workflows.md) | Purpose, triggers, inputs and jobs for every workflow |
-| [Build a SUSFS kernel](docs/build-susfs.md) | `build.yml`, the framework layout, adding a device |
+| [Build a BakaSU SUSFS kernel](docs/build-susfs.md) | `bakasu.yml`, the framework layout, adding a device |
 | [Master script](docs/master-script.md) | `scripts/master.sh` commands and where each workflow uses them |
 | [Secrets and outputs](docs/secrets-and-outputs.md) | Repository secrets, artifact names, notify delivery |
 | [Forking](docs/forking.md) | Hardcoded values to change in your own fork |
@@ -24,12 +26,11 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 
 | Workflow | Trigger | Purpose | Uses master script |
 | :--- | :--- | :--- | :--- |
-| `build.yml` (Build SUSFS Kernel) | Manual | Builds a device (violet by default) with SUSFS in two variants: `ksu` is BakaSU with SuSFS, `nsu` is a non-root build without SuSFS. Every setting can be overridden with an input | build image, notify, prune-ccache |
-| `build-env.yml` (Build Env Image) | Manual; on changes to `docker/build-env/` or this file | Builds and pushes the build image with the apt packages and `clang-r596125` preinstalled | none (Dockerfile) |
-| `automated.yml` (Automated Build for Violet) | Manual, or called by `release.yml` | Fixed-target kernel and Manager build for violet, with Telegram delivery. Syncs KernelSU first, then builds the Manager from the synced source | build image, clang (fallback), ksu-setup, compile, prune-ccache, notify, AnyKernel3 |
-| `kernel.yml` (Kernel Build) | Manual | Standalone kernel build from any source, with a KernelSU branch choice. Raw kernel images are an optional upload. No Manager APK | build image, clang (fallback), ksu-setup, compile, prune-ccache, notify, AnyKernel3 |
-| `build-manager.yml` (Build Manager) | Manual; called by `automated.yml` | Builds the KernelSU Manager APK and `ksud` binaries | none (self-contained) |
-| `release.yml` (Release) | Tag `v*`; manual; called | Publishes a GitHub Release from the automated build | none (calls `automated.yml`) |
+| `bakasu.yml` (BakaSU Kernel Build) | Manual | Builds a device with BakaSU and SUSFS (`ksu` variant), optionally also a non-root `nsu` variant. Every input is optional, and an empty input uses `devices/<device>.json` | build image, clang, notify, prune-ccache |
+| `kernelsu.yml` (KernelSU Kernel Build) | Manual; called by `release.yml` | Builds a device with KernelSU, with SUSFS on by default. Can attach the Manager APK. Every input is optional | build image, clang, ksu-setup, compile, anykernel, notify, prune-ccache |
+| `build-manager.yml` (Build Manager) | Manual; called by `kernelsu.yml` and `release.yml` | Builds the KernelSU Manager APK and `ksud` binaries | none (self-contained) |
+| `build-env.yml` (Build Env Image) | Manual; on changes to `docker/build-env/` | Builds and pushes the build image with the apt packages and `clang-r596125` preinstalled | none (Dockerfile) |
+| `release.yml` (Release) | Tag `v*`; manual; called | Builds with `kernelsu.yml` (Manager APK included) and publishes a GitHub Release | none (calls `kernelsu.yml`) |
 
 "Uses master script" lists the shared steps each workflow takes from [`scripts/master.sh`](docs/master-script.md). Steps unique to a workflow stay in that workflow.
 
@@ -37,12 +38,6 @@ GitHub Actions workflows for building Android kernels with KernelSU or SUSFS, an
 
 ## Quick start
 
-- **Build violet with SUSFS:** Actions → *Build XCalibur-XF SUSFS Kernel (violet)* → *Run workflow*. See [Build a SUSFS kernel](docs/build-susfs.md).
-- **Build a different kernel source:** Actions → *Kernel Build (main)* → fill in the kernel source, branch, defconfig and device. See [Workflows](docs/workflows.md#kernelyml-kernel-build-main).
-- **Build the Manager APK:** run *Build Manager* by hand. See [Workflows](docs/workflows.md#build-manageryml-build-manager).
-- **Rebuild the build image:** run *Build Env Image* by hand after changing packages or the Clang version in `docker/build-env/`. See [Workflows](docs/workflows.md#build-envyml-build-env-image).
-- **Publish a release:** push a `v*` tag, or run *Release* by hand. See [Workflows](docs/workflows.md#releaseyml-release).
-
----
-
-← Next: [Workflows](docs/workflows.md)
+- **Build violet with BakaSU and SUSFS:** Actions → *BakaSU Kernel Build* → *Run workflow*. See [Build a BakaSU SUSFS kernel](docs/build-susfs.md).
+- **Build violet with KernelSU:** Actions → *KernelSU Kernel Build* → *Run workflow*. SUSFS is on by default and can be turned off. See [Workflows](docs/workflows.md#kernelsuyml-kernelsu-kernel-build).
+- **Build another device:** add `devices/<name>.json`, or fill in the inputs of either build workflow. See [Forking](docs/forking.md).
