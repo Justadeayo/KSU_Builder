@@ -1,15 +1,31 @@
-From eae71f7d081aa2483fa5bf80d0a49f47d9eda5af Mon Sep 17 00:00:00 2001
+From 1f569ce03d4ca553ce4d5c2c1931576faa8e9858 Mon Sep 17 00:00:00 2001
 From: Justus <justadeayo@gmail.com>
 Date: Wed, 25 Nov 2026 11:11:22 +0100
 Subject: [PATCH] susfs: link fixes
 
 ---
- kernel/feature/sucompat.c     | 22 ++++++++++-----
- kernel/feature/susfs_compat.c | 51 +++++++++++++++++++++++++++++++++++
+ kernel/Makefile               |  4 +++
+ kernel/feature/sucompat.c     | 22 ++++++++----
+ kernel/feature/susfs_compat.c | 68 +++++++++++++++++++++++++++++++++++
  kernel/ksu.c                  |  4 +++
- 3 files changed, 70 insertions(+), 7 deletions(-)
+ 4 files changed, 91 insertions(+), 7 deletions(-)
  create mode 100644 kernel/feature/susfs_compat.c
 
+diff --git a/kernel/Makefile b/kernel/Makefile
+index 6687c3bd..8ad724ff 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -31,6 +31,10 @@ ifeq ($(shell grep -q " current_sid(void)" $(srctree)/security/selinux/include/o
+ CFLAGS_ksu.o += -DKSU_COMPAT_HAS_CURRENT_SID
+ endif
+ 
++ifeq ($(shell grep -qs "bool susfs_is_current_ksu_domain(void) {" $(srctree)/drivers/kernelsu/selinux/selinux.c $(srctree)/common/drivers/kernelsu/selinux/selinux.c; echo $$?),0)
++CFLAGS_ksu.o += -DKSU_SUSFS_SID_IN_TREE
++endif
++
+ ifeq ($(shell grep -q "struct selinux_state " $(srctree)/security/selinux/include/security.h; echo $$?),0)
+ CFLAGS_ksu.o += -DKSU_COMPAT_HAS_SELINUX_STATE
+ endif
 diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
 index d883be0f..676b3cee 100644
 --- a/kernel/feature/sucompat.c
@@ -90,10 +106,10 @@ index d883be0f..676b3cee 100644
  	return 0;
 diff --git a/kernel/feature/susfs_compat.c b/kernel/feature/susfs_compat.c
 new file mode 100644
-index 00000000..837159ce
+index 00000000..5c6e92e9
 --- /dev/null
 +++ b/kernel/feature/susfs_compat.c
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,68 @@
 +#ifdef CONFIG_KSU_SUSFS
 +
 +DEFINE_STATIC_KEY_TRUE(ksu_is_init_rc_hook_enabled);
@@ -125,6 +141,23 @@ index 00000000..837159ce
 +}
 +
 +int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags, int *retval)
++{
++	return 0;
++}
++
++#ifndef KSU_SUSFS_SID_IN_TREE
++bool susfs_is_current_ksu_domain(void)
++{
++	return is_ksu_domain();
++}
++#endif
++
++int susfs_add_sus_avd_allowed_by_type(u32 s_type, u32 t_type, u32 c_type, u32 orig_avd_allowed)
++{
++	return 0;
++}
++
++int susfs_add_sus_type(const char *secctx, u32 type_value)
 +{
 +	return 0;
 +}

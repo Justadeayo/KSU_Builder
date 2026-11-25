@@ -24,6 +24,12 @@ git -C "$SUSFS_SRC" checkout -q FETCH_HEAD
 
 cd "$KDIR"
 
+[ -f drivers/kernelsu/Kconfig ] || die "drivers/kernelsu/Kconfig missing in ${KDIR}, ksu-fetch did not link KernelSU"
+if ! grep -q "config KSU_SUSFS" drivers/kernelsu/Kconfig; then
+    log "Adding SuSFS Kconfig to KernelSU"
+    cat "${SCRIPT_DIR}/../patches/susfs/Kconfig.susfs" >> drivers/kernelsu/Kconfig
+fi
+
 if grep -q "CONFIG_KSU_SUSFS" fs/namespace.c 2>/dev/null; then
     log "SuSFS already present in ${KDIR}, skipping"
 else
