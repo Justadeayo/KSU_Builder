@@ -120,6 +120,15 @@ cmd_anykernel() {
 }
 
 # ---------------------------------------------------------------- ksu-setup
+# susfs_apply <kernel-dir> <defconfig> <script-dir>
+susfs_apply() {
+    local kdir="$1" defconfig="$2" script_dir="$3"
+    local kver device
+    kver="$(sed -n 's/^VERSION = //p;s/^PATCHLEVEL = //p' "$kdir/Makefile" | paste -sd. -)"
+    device="$(basename "$defconfig" _defconfig)"
+    bash "${script_dir}/susfs-setup.sh" "$kdir" "${kver%.*}" "$device"
+}
+
 # ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]
 cmd_ksu_setup() {
     local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]}"
@@ -133,9 +142,11 @@ cmd_ksu_setup() {
     case "$ksu_type" in
         KernelSU)
             bash "${script_dir}/ksu-fetch.sh" "$kdir"
+            susfs_apply "$kdir" "$defconfig" "$script_dir"
             ;;
         Uni-SU)
             bash "${script_dir}/ksu-fetch.sh" "$kdir" "${script_dir}/../patches/ksu" "${script_dir}/../patches/uni-su"
+            susfs_apply "$kdir" "$defconfig" "$script_dir"
             ;;
         *) die "unknown ksu-type: $ksu_type" ;;
     esac
@@ -149,6 +160,14 @@ cmd_ksu_setup() {
         echo "CONFIG_OVERLAY_FS=y"
         # Needed for the KernelSU driver to get root on this kernel
         [ "$ksu_type" = "KernelSU" ] && echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"
+        if [ "$ksu_type" = "KernelSU" ] || [ "$ksu_type" = "Uni-SU" ]; then
+            for opt in CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_PATH CONFIG_KSU_SUSFS_SUS_MOUNT \
+                       CONFIG_KSU_SUSFS_SUS_KSTAT CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_ENABLE_LOG \
+                       CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+                       CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
+                echo "${opt}=y"
+            done
+        fi
     } >> "$defconfig"
     cd - >/dev/null
     log "KernelSU (${ksu_type}) configured in ${defconfig}"
