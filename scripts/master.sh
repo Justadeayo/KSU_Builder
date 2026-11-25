@@ -155,6 +155,7 @@ cmd_ksu_setup() {
     local susfs="${4:-true}"
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    [ -f "${script_dir}/../config.env" ] && source "${script_dir}/../config.env"
 
     [ "$ksu_type" = "None" ] && { log "ksu-type None, skipping KernelSU setup."; return 0; }
 
@@ -169,6 +170,11 @@ cmd_ksu_setup() {
     esac
 
     cd "$kdir"
+    NM_ON=false
+    if [ -n "${NOMOUNT_TAG:-}" ] && [ "${NOMOUNT_ENABLED:-true}" = "true" ] && [ "$ksu_type" = "KernelSU" ]; then
+        NM_ON=true
+        bash "${script_dir}/nomount.sh"
+    fi
     {
         echo "CONFIG_KSU=y"
         echo "CONFIG_KPROBES=y"
@@ -184,6 +190,9 @@ cmd_ksu_setup() {
                        CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
                 echo "${opt}=y"
             done
+        fi
+        if [ "$NM_ON" = "true" ]; then
+            echo "CONFIG_NOMOUNT=y"
         fi
     } >> "$defconfig"
     cd - >/dev/null

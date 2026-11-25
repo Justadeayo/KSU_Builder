@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../config.env"
 
 DEVICE="${1:?Usage: ksu.sh <device>}"
 DEVICE_JSON="devices/${DEVICE}.json"
@@ -148,6 +149,12 @@ unstatic "security/selinux/ss/services.c" "void context_struct_compute_av("
 log "Static-symbol export summary: ${UNSTATIC_APPLIED}/${UNSTATIC_TOTAL} applied"
 if [ "$UNSTATIC_APPLIED" -lt "$UNSTATIC_TOTAL" ]; then
     warn "$((UNSTATIC_TOTAL - UNSTATIC_APPLIED)) pattern(s) above were NOT applied — this is expected if they're already non-static in this tree, but if this is a NEW kernel source (different repo/version than previously verified), manually confirm BakaSU actually has the symbol access it needs before trusting this build."
+fi
+
+# NoMount: built-in driver, enabled whenever NOMOUNT_TAG is set
+if [ -n "${NOMOUNT_TAG:-}" ]; then
+    bash "${SCRIPT_DIR}/nomount.sh"
+    fragment_add "$FRAGMENT_FILE" "-e CONFIG_NOMOUNT"
 fi
 
 fragment_add "$FRAGMENT_FILE" "-e CONFIG_KSU"

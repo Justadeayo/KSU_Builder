@@ -62,6 +62,12 @@ fi
 # Resolve dependencies after all fragment toggles
 make O="$OUT_DIR" ARCH="$KERNEL_ARCH" $LLVM_TOOLS olddefconfig
 
+# If NoMount was integrated, CONFIG_NOMOUNT=y must survive olddefconfig
+if [ -L fs/nomount ] && ! grep -q "^CONFIG_NOMOUNT=y" "${OUT_DIR}/.config"; then
+    echo "::error::NoMount is integrated but CONFIG_NOMOUNT=y is missing from the final .config"
+    exit 1
+fi
+
 # Save final .config as a debug artifact
 cp "${OUT_DIR}/.config" "${WORKDIR}/${DEVICE}-${VARIANT}-config"
 

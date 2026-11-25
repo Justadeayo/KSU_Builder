@@ -52,6 +52,11 @@ on:
         required: false
         type: boolean
         default: true
+      nomount:
+        description: "Integrate NoMount (built-in driver)."
+        required: false
+        type: boolean
+        default: true
       build_manager:
         description: "Also build and attach the KernelSU Manager APK"
         required: false
@@ -89,6 +94,10 @@ on:
         type: string
         default: "KernelSU"
       susfs:
+        required: false
+        type: boolean
+        default: true
+      nomount:
         required: false
         type: boolean
         default: true
@@ -202,6 +211,8 @@ jobs:
           fi
 
       - name: Set up root manager and defconfig
+        env:
+          NOMOUNT_ENABLED: ${{ inputs.nomount }}
         run: bash scripts/master.sh ksu-setup kernel "$KSU_TYPE" "arch/arm64/configs/$DEFCONFIG" "${{ inputs.susfs }}"
 
       - name: Reset ccache statistics
