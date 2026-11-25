@@ -2,23 +2,24 @@
 # Based on Zincore Forge by yureixen (https://github.com/yureixen/zincore-forge).
 # Copied and modified for Justadeayo/KSU_Builder. Licensed under GPL-2.0; see LICENSE-GPL-2.0.
 #
-# Builds a device with SUSFS. Every input is optional. An empty input keeps the value
-# from builder/devices/<device>.json, so an empty form builds violet exactly as before.
+# Builds a device with SUSFS. Every input is optional. An empty input keeps the value from builder/devices/<device>.json, so an empty form builds violet exactly as before.
 name: Build SUSFS Kernel
 
 on:
   workflow_dispatch:
     inputs:
+      device_codename:
+        description: "Device to build (Codename)."
+        required: false
+        type: choice
+        options:
+          - violet
+        default: violet
       build_nonksu:
         description: "Also build the non-KSU variant (nsu)"
         required: false
         type: boolean
         default: false
-      device_codename:
-        description: "Device (devices/<name>.json). Empty = violet"
-        required: false
-        type: string
-        default: ""
       kernel_name:
         description: "Kernel name for the zip name. Empty = from device JSON"
         required: false
@@ -34,13 +35,8 @@ on:
         required: false
         type: string
         default: ""
-      kernel_version:
-        description: "Kernel VERSION.PATCHLEVEL, checked in preflight. Empty = from device JSON"
-        required: false
-        type: string
-        default: ""
       defconfig_name:
-        description: "Defconfig target, e.g. vendor/xcalibur-perf_defconfig. Empty = from device JSON"
+        description: "Defconfig target. Empty = from device JSON"
         required: false
         type: string
         default: ""
@@ -56,29 +52,9 @@ on:
           - r547379
           - 3289846
         default: default
-      ak3_repo:
-        description: "AnyKernel3 repo URL. Empty = from device JSON"
-        required: false
-        type: string
-        default: ""
-      ak3_branch:
-        description: "AnyKernel3 branch. Empty = from device JSON"
-        required: false
-        type: string
-        default: ""
-      telegram_chat_id:
-        description: "Telegram chat ID override. Empty = TELEGRAM_CHAT_ID secret"
-        required: false
-        type: string
-        default: ""
-      telegram_bot_token:
-        description: "Telegram bot token override. Empty = TELEGRAM_BOT_TOKEN secret"
-        required: false
-        type: string
-        default: ""
       create_release:
         description: "Create a GitHub Release after build"
-        required: true
+        required: false
         type: boolean
         default: false
 
@@ -104,11 +80,8 @@ jobs:
           IN_KERNEL_NAME: ${{ inputs.kernel_name }}
           IN_KERNEL_REPO: ${{ inputs.kernel_source }}
           IN_KERNEL_BRANCH: ${{ inputs.kernel_branch }}
-          IN_KERNEL_VERSION: ${{ inputs.kernel_version }}
           IN_DEFCONFIG: ${{ inputs.defconfig_name }}
           IN_CLANG_VERSION: ${{ inputs.clang_version }}
-          IN_AK3_REPO: ${{ inputs.ak3_repo }}
-          IN_AK3_BRANCH: ${{ inputs.ak3_branch }}
         run: |
           set -euo pipefail
           RESOLVED="$(python3 builder/scripts/resolve-device.py builder/devices)"
@@ -129,8 +102,8 @@ jobs:
     outputs:
       epoch: ${{ steps.start.outputs.epoch }}
     env:
-      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       RESOLVED: ${{ needs.config.outputs.resolved }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -165,8 +138,8 @@ jobs:
     env:
       DEVICE: ${{ fromJSON(needs.config.outputs.resolved).device }}
       RESOLVED: ${{ needs.config.outputs.resolved }}
-      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - name: Checkout builder
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -310,8 +283,8 @@ jobs:
       - build
     runs-on: ubuntu-24.04
     env:
-      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       RESOLVED: ${{ needs.config.outputs.resolved }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -338,8 +311,8 @@ jobs:
     if: ${{ failure() }}
     runs-on: ubuntu-24.04
     env:
-      TELEGRAM_BOT_TOKEN: ${{ inputs.telegram_bot_token || secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id || secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       RESOLVED: ${{ needs.config.outputs.resolved }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
