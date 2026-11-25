@@ -126,7 +126,7 @@ susfs_apply() {
     local kver device
     kver="$(sed -n 's/^VERSION = //p;s/^PATCHLEVEL = //p' "$kdir/Makefile" | paste -sd. -)"
     device="$(basename "$defconfig" _defconfig)"
-    bash "${script_dir}/susfs-setup.sh" "$kdir" "${kver%.*}" "$device"
+    bash "${script_dir}/susfs-setup.sh" "$kdir" "$kver" "$device"
 }
 
 # ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]
