@@ -25,11 +25,13 @@ KSU_SRC="${WORKDIR}/.xcalibur-xf_deps/bakasu"
 SUSFS_SRC="${WORKDIR}/.xcalibur-xf_deps/susfs"
 mkdir -p "$(dirname "$KSU_SRC")"
 
-log "Cloning BakaSU (pinned to ${KSU_REPO_PIN})"
+log "Cloning BakaSU (${KSU_REPO_PIN})"
 git init --quiet "$KSU_SRC"
 git -C "$KSU_SRC" remote add origin "$KSU_REPO_URL"
 git -C "$KSU_SRC" fetch --quiet --depth 1 origin "$KSU_REPO_PIN"
 git -C "$KSU_SRC" checkout --quiet FETCH_HEAD
+KSU_COMMIT="$(git -C "$KSU_SRC" rev-parse HEAD)"
+log "BakaSU resolved to ${KSU_COMMIT}"
 
 log "Cloning SuSFS source (JackA1ltman, pinned to ${SUSFS_REPO_PIN})"
 git init --quiet "$SUSFS_SRC"
@@ -42,11 +44,11 @@ FRAGMENT_FILE="${FRAGMENT_DIR}/kernelsu.config"
 mkdir -p "$FRAGMENT_DIR"
 : > "$FRAGMENT_FILE"
 
-log "Installing BakaSU (pinned to ${KSU_REPO_PIN})"
-bash "${KSU_SRC}/kernel/setup.sh" "$KSU_REPO_PIN"
+log "Installing BakaSU (${KSU_COMMIT})"
+bash "${KSU_SRC}/kernel/setup.sh" "$KSU_COMMIT"
 
 # setup.sh silently falls back to the default branch if checkout fails; make sure the pin was really used
-[ "$(git -C KernelSU rev-parse HEAD)" = "$KSU_REPO_PIN" ] || die "BakaSU is not at the pinned commit ${KSU_REPO_PIN}, setup.sh checkout probably failed"
+[ "$(git -C KernelSU rev-parse HEAD)" = "$KSU_COMMIT" ] || die "BakaSU is not at ${KSU_COMMIT}, setup.sh checkout probably failed"
 
 log "Applying SuSFS patch for kernel $KERNEL_VERSION"
 
