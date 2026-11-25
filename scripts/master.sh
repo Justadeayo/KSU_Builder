@@ -9,7 +9,7 @@
 # Usage (from the repository root, after checkout):
 #   bash scripts/master.sh deps
 #   bash scripts/master.sh clang <clang-version> [dest-dir]
-#   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]
+#   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> [susfs: true|false]
 #   bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
 #   bash scripts/master.sh prune-ccache <cache-key>
 #   bash scripts/master.sh anykernel <boot-dir> <kernel-name> <device> <label> <clang-bin-dir>
@@ -129,11 +129,11 @@ susfs_apply() {
     bash "${script_dir}/susfs-setup.sh" "$kdir" "$kver" "$device"
 }
 
-# ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]
+# ksu-setup <kernel-dir> <ksu-type> <defconfig> [susfs: true|false]
 cmd_ksu_setup() {
-    local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> [setup-url] [branch]}"
+    local kdir="${1:?usage: ksu-setup <kernel-dir> <ksu-type> <defconfig> [susfs: true|false]}"
     local ksu_type="${2:?ksu-type}" defconfig="${3:?defconfig path}"
-    local url="${4:-}" branch="${5:-master}"
+    local susfs="${4:-true}"
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -142,7 +142,9 @@ cmd_ksu_setup() {
     case "$ksu_type" in
         KernelSU)
             bash "${script_dir}/ksu-fetch.sh" "$kdir"
-            susfs_apply "$kdir" "$defconfig" "$script_dir"
+            if [ "$susfs" = "true" ]; then
+                susfs_apply "$kdir" "$defconfig" "$script_dir"
+            fi
             ;;
         *) die "unknown ksu-type: $ksu_type" ;;
     esac
@@ -156,7 +158,7 @@ cmd_ksu_setup() {
         echo "CONFIG_OVERLAY_FS=y"
         # Needed for the KernelSU driver to get root on this kernel
         [ "$ksu_type" = "KernelSU" ] && echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"
-        if [ "$ksu_type" = "KernelSU" ]; then
+        if [ "$ksu_type" = "KernelSU" ] && [ "$susfs" = "true" ]; then
             for opt in CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_PATH CONFIG_KSU_SUSFS_SUS_MOUNT \
                        CONFIG_KSU_SUSFS_SUS_KSTAT CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_ENABLE_LOG \
                        CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \

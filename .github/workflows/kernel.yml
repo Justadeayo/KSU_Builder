@@ -28,6 +28,11 @@ on:
         required: false
         type: string
         default: "KernelSU"
+      susfs:
+        description: "Build with SUSFS"
+        required: false
+        type: boolean
+        default: true
       build_manager:
         description: "Also build and attach the KernelSU Manager APK"
         required: false
@@ -56,6 +61,10 @@ on:
         required: false
         type: string
         default: "KernelSU"
+      susfs:
+        required: false
+        type: boolean
+        default: true
       build_manager:
         required: false
         type: boolean
@@ -164,7 +173,7 @@ jobs:
           fi
 
       - name: Set up root manager and defconfig
-        run: bash scripts/master.sh ksu-setup kernel "$KSU_TYPE" "arch/arm64/configs/$DEFCONFIG"
+        run: bash scripts/master.sh ksu-setup kernel "$KSU_TYPE" "arch/arm64/configs/$DEFCONFIG" "${{ inputs.susfs }}"
 
       - name: Reset ccache statistics
         run: bash scripts/ccache-summary.sh reset
