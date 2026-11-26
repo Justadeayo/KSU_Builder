@@ -2,12 +2,9 @@
 # scripts/master.sh
 #
 # One place for the steps every KSU_Builder workflow repeats:
-# build dependencies, the AOSP Clang toolchain, ccache pruning and
-# AnyKernel3 packaging. Telegram messages live in scripts/notify.sh. Workflows call this file instead of carrying
-# their own copy.
+# the AOSP Clang toolchain, ccache pruning and AnyKernel3 packaging. Telegram messages live in scripts/notify.sh. Workflows call this file instead of carrying their own copy.
 #
 # Usage (from the repository root, after checkout):
-#   bash scripts/master.sh deps
 #   bash scripts/master.sh clang <clang-version> [dest-dir]
 #   bash scripts/master.sh ksu-setup <kernel-dir> <ksu-type> <defconfig> [susfs: true|false]
 #   bash scripts/master.sh compile <clang-version> <defconfig-target> <kernel-dir> <log-file>
@@ -27,22 +24,10 @@ AK3_REPO="${AK3_REPO:-https://github.com/Justadeayo/AnyKernel3.git}"
 AK3_BRANCH="${AK3_BRANCH:-master}"
 ANDROID_SRC="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs"
 
-# ---------------------------------------------------------------- deps
-cmd_deps() {
-    sudo rm -rf /etc/apt/sources.list.d/* || true
-    sudo apt-get -o Acquire::Timeout=5 -o Acquire::Retries=0 update
-    sudo apt-get install -y --no-install-recommends \
-        bc bison flex cpio dwarves zip rsync jq ccache \
-        build-essential git python3 curl lz4 lld \
-        libssl-dev libelf-dev libdw-dev \
-        gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-}
-
 # ---------------------------------------------------------------- clang
 # Clang versions live on different googlesource refs. Try them in order and
 # keep the first one that downloads. clang-r416183b comes from LineageOS.
-# Preferred googlesource ref per Clang version, tried first. Versions not
-# listed here go straight through DEFAULT_REFS.
+# Preferred googlesource ref per Clang version, tried first. Versions not listed here go straight through DEFAULT_REFS.
 declare -A CLANG_REF=(
     [clang-r596125]="heads/main-kernel"
     [clang-r614150]="heads/main-kernel"
@@ -261,7 +246,6 @@ cmd_prune_ccache() {
 }
 
 case "${1:-}" in
-    deps)      shift; cmd_deps "$@" ;;
     clang)     shift; cmd_clang "$@" ;;
     anykernel) shift; cmd_anykernel "$@" ;;
     ksu-setup) shift; cmd_ksu_setup "$@" ;;

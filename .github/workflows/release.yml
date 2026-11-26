@@ -36,6 +36,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+ 
+      - name: Read build versions
+        run: |
+          set -euo pipefail
+          source config.env
+          echo "NOMOUNT_TAG=${NOMOUNT_TAG}" >> "$GITHUB_ENV"
+          rm -rf /tmp/susfs-ver && git init -q /tmp/susfs-ver
+          git -C /tmp/susfs-ver remote add origin "$SUSFS_REPO_URL"
+          git -C /tmp/susfs-ver fetch -q --depth 1 origin "$SUSFS_REPO_PIN"
+          SUSFS_VER="$(git -C /tmp/susfs-ver show FETCH_HEAD:Patches/Patch/susfs_patch_to_4.14.patch | grep -m1 -o 'define SUSFS_VERSION "[^"]*"' | grep -o 'v[0-9.]*')"
+          [ -n "$SUSFS_VER" ] || { echo "::error::could not read SUSFS_VERSION"; exit 1; }
+          echo "SUSFS_VERSION=${SUSFS_VER}" >> "$GITHUB_ENV"
+
       - name: Generate and Push Version Tag
         id: version
         run: |
@@ -92,10 +105,12 @@ jobs:
           name: Release ${{ env.TAG_NAME }}
           generate_release_notes: false
           body: |
-            * Compatible with ANDRIOD 17 for DerpFest.
-            * Synced with Upstream Changes.
-            * Latest patch included
-            **Kernel:** XCaliburXF-6.0
+            * Included SUSFS ${{ env.SUSFS_VERSION }}
+            * Added support for ${{ env.NOMOUNT_TAG }} NoMount meta modules
+            * Added Eruda debugging for modules WebUI
+            * Synced with upstream changes.
+            * Other Improvement to kernel side
+            **Kernel:** XCalibur-XF       
             **KernelSU:** v3.3.1+
             **Kernel Zip:** ${{ env.ZIP_URL }}
             

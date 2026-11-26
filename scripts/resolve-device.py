@@ -3,13 +3,11 @@
 # Based on Zincore Forge by yureixen (https://github.com/yureixen/zincore-forge).
 # Copied and modified for Justadeayo/KSU_Builder. Licensed under GPL-2.0; see LICENSE-GPL-2.0.
 #
-# Resolves the device config for build.yml: devices/<device>.json with every
-# non-empty workflow input applied on top. Empty inputs keep the JSON value.
+# Resolves the device config for build.yml: devices/<device>.json with every non-empty workflow input applied on top. Empty inputs keep the JSON value.
 #
 #   DEVICE=violet IN_KERNEL_NAME=... python3 scripts/resolve-device.py <devices-dir>
 #
-# Prints the resolved config as one line of JSON on stdout. Log lines go to stderr,
-# so the caller can capture stdout directly.
+# Prints the resolved config as one line of JSON on stdout. Log lines go to stderr, so the caller can capture stdout directly.
 import json
 import os
 import sys

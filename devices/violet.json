@@ -10,8 +10,6 @@
     "clang_version": "r596125",
 
     "ak3_repo": "https://github.com/Justadeayo/AnyKernel3.git",
-    "ak3_branch": "master",
-
-    "variants": ["nsu", "ksu"]
+    "ak3_branch": "master"
   }
 }

@@ -3,8 +3,7 @@
 # Shared ccache helper for the build workflows.
 #
 #   ccache-summary.sh reset   zero the counters, so the next report covers one run
-#   ccache-summary.sh report  print ccache -s to the log and add a CCache Statistics
-#                             table to the job summary
+#   ccache-summary.sh report  print ccache -s to the log and add a CCache Statistics table to the job summary
 #
 # Uses CCACHE_DIR if set, otherwise $HOME/.ccache. Skips quietly if ccache is missing.
 set -uo pipefail
