@@ -110,7 +110,7 @@ new file mode 100644
 index 00000000..46ce4a71
 --- /dev/null
 +++ b/kernel/feature/susfs_compat.c
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,102 @@
 +#ifdef CONFIG_KSU_SUSFS
 +
 +#define KERNEL_INIT_DOMAIN "u:r:init:s0"
@@ -196,16 +196,6 @@ index 00000000..46ce4a71
 +	return is_ksu_domain();
 +}
 +#endif
-+
-+int susfs_add_sus_avd_allowed_by_type(u32 s_type, u32 t_type, u32 c_type, u32 orig_avd_allowed)
-+{
-+	return 0;
-+}
-+
-+int susfs_add_sus_type(const char *secctx, u32 type_value)
-+{
-+	return 0;
-+}
 +
 +#ifndef MODULE
 +int ksu_hide_setprocattr(const char *name, void *value, size_t size)
