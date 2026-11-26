@@ -228,6 +228,14 @@ cmd_compile() {
     make O=out "$target" CLANG_TRIPLE=aarch64-linux-gnu-
     make O=out olddefconfig CLANG_TRIPLE=aarch64-linux-gnu-
 
+    if grep -q "^CONFIG_KSU_SUSFS=y" out/.config; then
+        cur="$(sed -n 's/^CONFIG_LOCALVERSION="\(.*\)"$/\1/p' out/.config)"
+        if [[ "$cur" != *-susfs ]]; then
+            ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "${cur}-susfs"
+            log "LOCALVERSION: appended -susfs (${cur}-susfs)"
+        fi
+    fi
+
     if [ "${REQUIRE_KSU_TAMPER:-false}" = "true" ] && ! grep -q "^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" out/.config; then
         die "CONFIG_KSU_TAMPER_SYSCALL_TABLE is not enabled in the final .config. Root would fail."
     fi
