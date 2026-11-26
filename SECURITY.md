@@ -1,7 +1,9 @@
 # Reporting Security Issues
 
-The KernelSU team and community take security bugs in KernelSU seriously. We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
+This repository holds build workflows and scripts. It doesn't hold KernelSU or SUSFS source code.
 
-To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/tiann/KernelSU/security/advisories/new) tab, or you can mailto [weishu](mailto:twsxtd@gmail.com) directly.
+- **Problems in these workflows or scripts** (for example a secret that could leak from a build, or a script that runs untrusted input): open a GitHub Issue on this repository. If the report contains details that should stay private, use GitHub's private vulnerability reporting for this repository, if the owner has enabled it.
+- **Vulnerabilities in KernelSU itself**: report them to the KernelSU project, using its [Security Advisory tab](https://github.com/tiann/KernelSU/security/advisories/new) or by contacting the maintainer directly, as described in the upstream repository.
+- **Vulnerabilities in SUSFS, BakaSU, NoMount or AnyKernel3**: report them to those projects' own repositories.
 
-The KernelSU team will send a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
+Builds from this repository are experimental and aren't signed with production certificates. See [`LICENSE`](LICENSE) for the terms that apply to artifacts.

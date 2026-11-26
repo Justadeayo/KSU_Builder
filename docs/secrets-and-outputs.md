@@ -20,8 +20,8 @@ Set these under *Settings → Secrets and variables → Actions*. Workflows read
 | `RELEASE_KEYSTORE_PASSWORD` | `build-manager.yml` | Keystore password |
 | `RELEASE_KEY_ALIAS` | `build-manager.yml` | Key alias inside the keystore |
 | `RELEASE_KEY_PASSWORD` | `build-manager.yml` | Key password |
-| `BOT_TOKEN` | `build-manager.yml` | Checked before a step runs; set it only if that step needs it |
-| `GITHUB_TOKEN` | `build-env.yml` | Provided by GitHub. Used to push the build image |
+| `BOT_TOKEN` | `build-manager.yml` | Not used. The `repack-manager` job reads it into an output that no later step reads, so setting it has no effect |
+| `GITHUB_TOKEN` | Provided by GitHub | `build-env.yml` pushes the build image. `release.yml` pushes the tag and creates the release. `bakasu.yml` and `kernelsu.yml` prune the ccache entries. Each job asks for only the permissions it needs |
 
 `release.yml` and `kernelsu.yml` pass secrets to called workflows with `secrets: inherit`, so the secrets above only need to be set once on the repository.
 
@@ -45,13 +45,15 @@ Paste the contents of `release.keystore.b64` into `RELEASE_KEYSTORE_BASE64`, the
 
 | Output | Produced by | Where it ends up |
 | :--- | :--- | :--- |
-| Kernel zip | `bakasu.yml`, `kernelsu.yml` | Artifact `kernel-zip` (kernelsu), `xcalibur-xf-<device>-<variant>` (bakasu), and the Telegram finish message |
+| Kernel zip (KernelSU) | `kernelsu.yml` | Artifact `kernel-zip`, and the Telegram finish message |
+| Kernel zip (BakaSU) | `bakasu.yml` | Artifact `xcalibur-xf-<device>-<variant>`, and the Telegram finish message |
 | Manager APK | `build-manager.yml` | Artifact `manager`, attached to the finish message when `build_manager` is set |
-| `ksud` binaries | `build-manager.yml` | Artifact `ksud-<target>` |
+| `ksud` binaries | `build-manager.yml` | Artifact `ksud-<target>`. The `armv7` build is optional, and the release step continues without it |
 | Manager Gradle outputs | `build-manager.yml` | Artifact `manager-gradle` |
+| ProGuard mappings | `build-manager.yml` | Artifact `mappings` |
 | Debug logs | `bakasu.yml` | Artifact `debug-<device>-<variant>` |
-| Patch rejects | `bakasu.yml` | Artifact `xcalibur-xf-<device>-<variant>-rejects` |
-| Version info | `bakasu.yml` | Artifact `xcalibur-xf-<device>-<variant>-versions` |
+| Patch rejects | `bakasu.yml` | Artifact `xcalibur-xf-<device>-<variant>-rejects`, only when a patch fails |
+| Version info | `bakasu.yml` | Artifact `xcalibur-xf-<device>-ksu-versions`. Only the `ksu` variant produces it |
 | GitHub Release | `release.yml`, and `bakasu.yml` with `create_release` | Release page, with the zip and the Manager APK |
 
 `scripts/notify.sh` sends the Telegram messages: one start message, one finish message with the files once the build succeeds, and a failure message if it doesn't.
